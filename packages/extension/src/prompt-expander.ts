@@ -101,7 +101,7 @@ function resolveTemplate(
     if (localSkill) {
       return { filePath: localSkill, source: "skill", resolvedName: cand };
     }
-    // Step 3: pi.getCommands() registry skill.
+    // Step 3: pi.getCommands() registry (skills and prompt templates).
     if (pi?.getCommands) {
       try {
         const commands = pi.getCommands();
@@ -110,6 +110,12 @@ function resolveTemplate(
         );
         if (skill?.path && existsSync(skill.path)) {
           return { filePath: skill.path, source: "skill", resolvedName: cand };
+        }
+        const prompt = commands.find(
+          (c: any) => c.name === cand && c.source === "prompt" && c.path,
+        );
+        if (prompt?.path && existsSync(prompt.path)) {
+          return { filePath: prompt.path, source: "prompt", resolvedName: cand };
         }
       } catch { /* ignore */ }
     }
