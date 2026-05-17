@@ -464,4 +464,47 @@ describe("handleSendPrompt — interception wiring", () => {
     expect(spawnPiSession).not.toHaveBeenCalled();
     expect(ctx.piGateway.sendToSession).toHaveBeenCalled();
   });
+
+  it("forwards delivery field to bridge unchanged", async () => {
+    const { ctx } = makeCtx({
+      pidBySession: { S1: undefined },
+      sessions: {
+        S1: { id: "S1", cwd: "/p", sessionFile: "/p/s.jsonl", status: "active" },
+      },
+    });
+
+    await handleSendPrompt(
+      {
+        type: "send_prompt",
+        sessionId: "S1",
+        text: "steer this",
+        delivery: "steer",
+      } as any,
+      ctx,
+    );
+
+    expect(ctx.piGateway.sendToSession).toHaveBeenCalledWith(
+      "S1",
+      expect.objectContaining({ delivery: "steer" }),
+    );
+  });
+
+  it("forwards undefined delivery as undefined (JSON.stringify strips on wire)", async () => {
+    const { ctx } = makeCtx({
+      pidBySession: { S1: undefined },
+      sessions: {
+        S1: { id: "S1", cwd: "/p", sessionFile: "/p/s.jsonl", status: "active" },
+      },
+    });
+
+    await handleSendPrompt(
+      { type: "send_prompt", sessionId: "S1", text: "no delivery" } as any,
+      ctx,
+    );
+
+    expect(ctx.piGateway.sendToSession).toHaveBeenCalledWith(
+      "S1",
+      expect.objectContaining({ delivery: undefined }),
+    );
+  });
 });
