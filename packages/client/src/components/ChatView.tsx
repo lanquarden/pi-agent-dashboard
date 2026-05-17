@@ -500,7 +500,14 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
               <div className="flex-1">
                 <MarkdownContent content={state.pendingPrompt.text} />
               </div>
-              <Icon path={mdiLoading} size={0.7} className="animate-spin text-blue-400 shrink-0 mt-0.5" />
+              <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
+                {state.pendingPrompt.delivery === "steer" ? (
+                  <span className="text-[10px] text-blue-400/70 font-medium">steering</span>
+                ) : state.pendingPrompt.delivery === "followUp" ? (
+                  <span className="text-[10px] text-amber-400/70 font-medium">follow-up</span>
+                ) : null}
+                <Icon path={mdiLoading} size={0.7} className="animate-spin text-blue-400" />
+              </div>
             </div>
           </div>
         </div>

@@ -771,3 +771,67 @@ describe("CommandInput — input stays enabled mid-turn (mid-turn-prompt-queue)"
     expect(sendBtn).toBeTruthy();
   });
 });
+
+describe("CommandInput — steering delivery mode keyboard shortcuts", () => {
+  it("Enter sends with delivery: steer", () => {
+    const { textarea, onSend } = renderInput({ draft: "fix the bug", onDraftChange: vi.fn() });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(onSend).toHaveBeenCalledWith("fix the bug", undefined, "steer");
+  });
+
+  it("Alt+Enter sends with delivery: followUp", () => {
+    const { textarea, onSend } = renderInput({ draft: "after done", onDraftChange: vi.fn() });
+    fireEvent.keyDown(textarea, { key: "Enter", altKey: true });
+    expect(onSend).toHaveBeenCalledWith("after done", undefined, "followUp");
+  });
+
+  it("Shift+Enter does not send (inserts newline)", () => {
+    const { textarea, onSend } = renderInput({ draft: "line", onDraftChange: vi.fn() });
+    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: true });
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("Send button click sends with delivery: steer", () => {
+    const { container, onSend } = renderInput({
+      draft: "hello world",
+      onDraftChange: vi.fn(),
+    });
+    const sendBtn = container.querySelector('[data-testid="send-button"]') as HTMLButtonElement;
+    fireEvent.click(sendBtn);
+    expect(onSend).toHaveBeenCalledWith("hello world", undefined, "steer");
+  });
+
+  it("Enter sends with images and delivery: steer", () => {
+    const { textarea, onSend } = renderInput({
+      draft: "describe this",
+      onDraftChange: vi.fn(),
+      images: [{ type: "image" as const, data: "AAA", mimeType: "image/png" }],
+    });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(onSend).toHaveBeenCalledWith(
+      "describe this",
+      [{ type: "image", data: "AAA", mimeType: "image/png" }],
+      "steer",
+    );
+  });
+
+  it("Alt+Enter sends with images and delivery: followUp", () => {
+    const { textarea, onSend } = renderInput({
+      draft: "check image",
+      onDraftChange: vi.fn(),
+      images: [{ type: "image" as const, data: "BBB", mimeType: "image/jpeg" }],
+    });
+    fireEvent.keyDown(textarea, { key: "Enter", altKey: true });
+    expect(onSend).toHaveBeenCalledWith(
+      "check image",
+      [{ type: "image", data: "BBB", mimeType: "image/jpeg" }],
+      "followUp",
+    );
+  });
+
+  it("does not send when text is empty", () => {
+    const { textarea, onSend } = renderInput({ draft: "   ", onDraftChange: vi.fn() });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(onSend).not.toHaveBeenCalled();
+  });
+});

@@ -200,9 +200,9 @@ export function useSessionActions(deps: SessionActionDeps) {
     });
   }, [send]);
 
-  const handleSend = useCallback((text: string, images?: ImageContent[]) => {
+  const handleSend = useCallback((text: string, images?: ImageContent[], delivery?: "steer" | "followUp") => {
     if (selectedId) {
-      send({ type: "send_prompt", sessionId: selectedId, text, images });
+      send({ type: "send_prompt", sessionId: selectedId, text, images, delivery });
       setSessionStates((prev) => {
         const next = new Map(prev);
         const current = next.get(selectedId) ?? createInitialState();
@@ -211,6 +211,7 @@ export function useSessionActions(deps: SessionActionDeps) {
           pendingPrompt: {
             text,
             images: images?.map((img) => ({ data: img.data, mimeType: img.mimeType })),
+            delivery,
           },
         });
         return next;

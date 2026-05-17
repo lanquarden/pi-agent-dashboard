@@ -481,7 +481,7 @@ describe("CommandHandler", () => {
 
       await handler.handle({ type: "send_prompt", sessionId: "s1", text: "/some-command args" });
 
-      expect(sessionPrompt).toHaveBeenCalledWith("/some-command args");
+      expect(sessionPrompt).toHaveBeenCalledWith("/some-command args", undefined);
       expect(pi.sendUserMessage).not.toHaveBeenCalled();
     });
 
@@ -867,7 +867,7 @@ describe("CommandHandler enqueueIfStreaming (mid-turn-prompt-queue)", () => {
     });
 
     expect(enqueueIfStreaming).not.toHaveBeenCalled();
-    expect(sessionPrompt).toHaveBeenCalledWith("/help");
+    expect(sessionPrompt).toHaveBeenCalledWith("/help", undefined);
   });
 
   it("behaves like today when enqueueIfStreaming is not provided (passthrough goes to pi)", async () => {
@@ -905,5 +905,88 @@ describe("CommandHandler enqueueIfStreaming (mid-turn-prompt-queue)", () => {
     await handler.handle({ type: "abort", sessionId: "s1" });
 
     expect(abort).toHaveBeenCalledTimes(1);
+  });
+
+  // ── steering delivery mode ────────────────────────────────────
+  // See change: add-steering-message.
+
+  it("delivery steer on passthrough bypasses bridge queue and calls sendUserMessage with deliverAs: steer", async () => {
+    const pi = createMockPi();
+    const enqueueIfStreaming = vi.fn().mockReturnValue(true);
+    const handler = createCommandHandler(pi as any, "s1", { enqueueIfStreaming });
+
+    await handler.handle({
+      type: "send_prompt",
+      sessionId: "s1",
+      text: "focus on X",
+      delivery: "steer",
+    });
+
+    expect(enqueueIfStreaming).not.toHaveBeenCalled();
+    expect(pi.sendUserMessage).toHaveBeenCalledWith("focus on X", { deliverAs: "steer" });
+  });
+
+  it("delivery followUp on passthrough preserves existing enqueue+followUp behavior", async () => {
+    const pi = createMockPi();
+    const enqueueIfStreaming = vi.fn().mockReturnValue(true);
+    const handler = createCommandHandler(pi as any, "s1", { enqueueIfStreaming });
+
+    await handler.handle({
+      type: "send_prompt",
+      sessionId: "s1",
+      text: "after done",
+      delivery: "followUp",
+    });
+
+    expect(enqueueIfStreaming).toHaveBeenCalledWith("after done", undefined);
+    expect(pi.sendUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("delivery absent on passthrough preserves existing enqueue+followUp behavior", async () => {
+    const pi = createMockPi();
+    const enqueueIfStreaming = vi.fn().mockReturnValue(false);
+    const handler = createCommandHandler(pi as any, "s1", { enqueueIfStreaming });
+
+    await handler.handle({
+      type: "send_prompt",
+      sessionId: "s1",
+      text: "plain",
+    });
+
+    expect(enqueueIfStreaming).toHaveBeenCalledWith("plain", undefined);
+    expect(pi.sendUserMessage).toHaveBeenCalledWith("plain", { deliverAs: "followUp" });
+  });
+
+  it("delivery steer on slash command passes delivery to sessionPrompt", async () => {
+    const pi = createMockPi();
+    const sessionPrompt = vi.fn();
+    const handler = createCommandHandler(pi as any, "s1", { sessionPrompt });
+
+    await handler.handle({
+      type: "send_prompt",
+      sessionId: "s1",
+      text: "/some-command args",
+      delivery: "steer",
+    });
+
+    expect(sessionPrompt).toHaveBeenCalledWith("/some-command args", "steer");
+    expect(pi.sendUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("delivery steer on passthrough when enqueueIfStreaming returns false (idle) still calls sendUserMessage with steer", async () => {
+    const pi = createMockPi();
+    const enqueueIfStreaming = vi.fn().mockReturnValue(false);
+    const handler = createCommandHandler(pi as any, "s1", { enqueueIfStreaming });
+
+    await handler.handle({
+      type: "send_prompt",
+      sessionId: "s1",
+      text: "hi",
+      delivery: "steer",
+    });
+
+    // Steer bypasses enqueueIfStreaming entirely — it's not even called.
+    expect(enqueueIfStreaming).not.toHaveBeenCalled();
+    expect(pi.sendUserMessage).toHaveBeenCalledWith("hi", { deliverAs: "steer" });
   });
 });

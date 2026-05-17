@@ -622,6 +622,8 @@ export interface SendPromptToBrowserMessage {
   sessionId: string;
   text: string;
   images?: ImageContent[];
+  /** Delivery mode: "steer" (after current turn) or "followUp" (after agent finishes). Defaults to "followUp" when absent. See change: add-steering-message. */
+  delivery?: "steer" | "followUp";
 }
 
 export interface AbortToBrowserMessage {

@@ -14,7 +14,7 @@ const BUILTIN_COMMANDS: CommandInfo[] = [
 
 interface Props {
   commands: CommandInfo[];
-  onSend: (text: string, images?: ImageContent[]) => void;
+  onSend: (text: string, images?: ImageContent[], delivery?: "steer" | "followUp") => void;
   onListFiles?: (query: string) => void;
   fileResults?: { query: string; files: FileEntry[] } | null;
   disabled?: boolean;
@@ -257,9 +257,9 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
     });
   };
 
-  const handleSend = useCallback(() => {
+  const handleSend = useCallback((delivery?: "steer" | "followUp") => {
     if (text.trim()) {
-      onSend(text.trim(), pendingImages.length > 0 ? pendingImages : undefined);
+      onSend(text.trim(), pendingImages.length > 0 ? pendingImages : undefined, delivery);
       clearImages();
       setText("");
       // Reset textarea height
@@ -388,7 +388,10 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
 
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        handleSend();
+        // Alt+Enter / Option+Enter = followUp; Enter alone = steer (default).
+        // Mirrors pi's TUI keyboard contract. See change: add-steering-message.
+        const delivery = e.altKey ? "followUp" : "steer";
+        handleSend(delivery);
       }
     },
     // Note: `selectCommand` / `selectFile` are intentionally omitted — they
@@ -485,7 +488,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
           }}
         />
         <button
-          onClick={handleSend}
+          onClick={() => handleSend("steer")}
           /* Send button mirrors textarea: enabled during streaming so the
              user can queue another mid-turn message. */
           disabled={disabled || (pendingPrompt && !isWorking) || !text.trim()}

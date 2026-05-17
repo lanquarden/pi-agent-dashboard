@@ -78,6 +78,8 @@ const MAX_TURN_STATS = 50;
 export interface PendingPrompt {
   text: string;
   images?: ChatImage[];
+  /** Delivery mode set by the sender. "steer" = after current turn, "followUp" = after agent finishes. See change: add-steering-message. */
+  delivery?: "steer" | "followUp";
 }
 
 export interface InteractiveUiRequest {

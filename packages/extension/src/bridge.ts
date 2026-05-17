@@ -759,7 +759,7 @@ function initBridge(pi: ExtensionAPI) {
         emitQueueState(sessionId);
       }
     },
-    sessionPrompt: async (text) => {
+    sessionPrompt: async (text, delivery) => {
       // Route slash commands: management events, flow:run, extension dispatch, then fallback.
       // See change: fix-extension-slash-commands-in-dashboard.
       if (text.startsWith("/") && pi.events) {
@@ -791,11 +791,12 @@ function initBridge(pi: ExtensionAPI) {
       if (handled) return;
 
       // Fallback: send as user message (template-expanded).
-      // Uses deliverAs:followUp so it queues properly when agent is streaming.
-      // expandPromptTemplateFromDisk handles skill commands (/skill:xxx) and
-      // prompt templates by reading the file content from disk.
+      // Uses delivery param to choose deliverAs: "steer" or "followUp".
+      // Defaults to "followUp" when delivery is absent (backward compatible).
+      // See change: add-steering-message.
+      const deliverAs = delivery ?? ("followUp" as const);
       const expanded = expandPromptTemplateFromDisk(text, process.cwd(), pi);
-      (pi.sendUserMessage as any)(expanded, { deliverAs: "followUp" });
+      (pi.sendUserMessage as any)(expanded, { deliverAs });
     },
   });
 

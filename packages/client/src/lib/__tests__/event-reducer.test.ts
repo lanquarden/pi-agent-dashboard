@@ -982,6 +982,95 @@ describe("pendingPrompt", () => {
     });
     expect(state.pendingPrompt).toBeUndefined();
   });
+
+  it("should store delivery field on pendingPrompt", () => {
+    const pending: PendingPrompt = { text: "Focus", delivery: "steer" };
+    let state = createInitialState();
+    state = { ...state, pendingPrompt: pending };
+    expect(state.pendingPrompt).toEqual({ text: "Focus", delivery: "steer" });
+  });
+
+  it("should preserve delivery field on pendingPrompt through unrelated events", () => {
+    const pending: PendingPrompt = { text: "Later", delivery: "followUp" };
+    let state = createInitialState();
+    state = { ...state, pendingPrompt: pending };
+
+    state = reduceEvent(state, {
+      eventType: "stats_update",
+      timestamp: Date.now(),
+      data: { tokensIn: 10, tokensOut: 5, contextUsage: { tokens: 100 } },
+    });
+    expect(state.pendingPrompt).toEqual({ text: "Later", delivery: "followUp" });
+  });
+
+  it("should clear pendingPrompt with delivery on message_start (role: user)", () => {
+    const pending: PendingPrompt = { text: "Now", delivery: "steer" };
+    let state = createInitialState();
+    state = { ...state, pendingPrompt: pending };
+
+    state = reduceEvent(state, {
+      eventType: "message_start",
+      timestamp: Date.now(),
+      data: {
+        message: {
+          role: "user",
+          content: [{ type: "text", text: "Now" }],
+        },
+      },
+    });
+    expect(state.pendingPrompt).toBeUndefined();
+  });
+
+  it("should clear pendingPrompt with delivery on agent_start", () => {
+    const pending: PendingPrompt = { text: "Go", delivery: "steer" };
+    let state = createInitialState();
+    state = { ...state, pendingPrompt: pending };
+
+    state = reduceEvent(state, {
+      eventType: "agent_start",
+      timestamp: Date.now(),
+    });
+    expect(state.pendingPrompt).toBeUndefined();
+  });
+
+  it("should clear pendingPrompt with delivery on agent_end", () => {
+    const pending: PendingPrompt = { text: "Done", delivery: "followUp" };
+    let state = createInitialState();
+    state = { ...state, pendingPrompt: pending };
+
+    state = reduceEvent(state, {
+      eventType: "agent_end",
+      timestamp: Date.now(),
+      data: { messages: [] },
+    });
+    expect(state.pendingPrompt).toBeUndefined();
+  });
+
+  it("should clear pendingPrompt with delivery on bash_output", () => {
+    const pending: PendingPrompt = { text: "!!ls", delivery: "followUp" };
+    let state = createInitialState();
+    state = { ...state, pendingPrompt: pending };
+
+    state = reduceEvent(state, {
+      eventType: "bash_output",
+      timestamp: Date.now(),
+      data: { stdout: "file.txt", stderr: "", exitCode: 0 },
+    });
+    expect(state.pendingPrompt).toBeUndefined();
+  });
+
+  it("should clear pendingPrompt with delivery on command_feedback", () => {
+    const pending: PendingPrompt = { text: "/compact", delivery: "steer" };
+    let state = createInitialState();
+    state = { ...state, pendingPrompt: pending };
+
+    state = reduceEvent(state, {
+      eventType: "command_feedback",
+      timestamp: Date.now(),
+      data: { command: "/compact", status: "started" },
+    });
+    expect(state.pendingPrompt).toBeUndefined();
+  });
 });
 
 describe("toDisplayString", () => {

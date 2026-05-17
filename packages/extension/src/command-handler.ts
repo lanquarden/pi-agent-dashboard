@@ -169,7 +169,7 @@ export function createCommandHandler(
      * events emitted by the dispatch path arrive before this turn returns.
      * See change: fix-extension-slash-commands-in-dashboard.
      */
-    sessionPrompt?: (text: string) => void | Promise<void>;
+    sessionPrompt?: (text: string, delivery?: "steer" | "followUp") => void | Promise<void>;
     /**
      * If the agent is currently streaming, enqueue the user prompt into the
      * bridge-owned mid-turn queue and return `true`. The command handler then
@@ -324,7 +324,7 @@ export function createCommandHandler(
               // extension-command dispatch. Do NOT emit completed here — would
               // duplicate the dispatch path's terminal event.
               // See change: fix-extension-slash-commands-in-dashboard.
-              await options.sessionPrompt(parsed.text);
+              await options.sessionPrompt(parsed.text, msg.delivery);
             } else {
               // Test / non-bridge callers: apply the extension-command dispatch
               // branch inline before falling through to sendUserMessage. Keeps
@@ -363,11 +363,15 @@ export function createCommandHandler(
           // to the bridge queue instead of forwarding to pi. The bridge drains
           // on `agent_end` (see bridge.ts), so messages run after the current
           // turn completes. Cancel via `clear_queue`.
+          // Steering messages (delivery: "steer") bypass the bridge queue —
+          // pi handles its own internal steering queue, delivering after the
+          // current turn finishes its tool calls. See change: add-steering-message.
           // See capability `mid-turn-prompt-queue`.
-          if (options?.enqueueIfStreaming?.(outgoing, msg.images)) {
+          const isSteering = msg.delivery === "steer";
+          if (!isSteering && options?.enqueueIfStreaming?.(outgoing, msg.images)) {
             return undefined;
           }
-          sendUserMessageWithImages(pi, outgoing, msg.images);
+          sendUserMessageWithImages(pi, outgoing, msg.images, msg.delivery);
           return undefined;
         }
 
@@ -539,13 +543,17 @@ export function createCommandHandler(
 }
 
 /** Send a user message with optional image validation.
- * Uses deliverAs: "followUp" so messages queue properly when the agent is streaming. */
+ * Uses deliverAs: "followUp" by default so messages queue properly when the agent is streaming.
+ * Pass deliverAs: "steer" for steering messages (delivered after current turn).
+ * See change: add-steering-message. */
 function sendUserMessageWithImages(
   pi: ExtensionAPI,
   text: string,
   images?: Array<{ type: string; data: string; mimeType: string }>,
+  delivery?: "steer" | "followUp",
 ): void {
-  const sendOptions = { deliverAs: "followUp" as const };
+  const deliverAs = delivery ?? ("followUp" as const);
+  const sendOptions = { deliverAs };
   if (images && images.length > 0) {
     const validMimeTypes = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
     const validImages = images.filter((img) => {

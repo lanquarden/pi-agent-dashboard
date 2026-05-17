@@ -739,7 +739,7 @@ export default function App() {
   // Wrap handleSend to intercept extension UI module commands and clear
   // the per-session draft. Plugin command-route claims (e.g. /flows*)
   // are handled separately by the shell's command-route slot consumer.
-  const wrappedHandleSend = useCallback((text: string, images?: ImageContent[]) => {
+  const wrappedHandleSend = useCallback((text: string, images?: ImageContent[], delivery?: "steer" | "followUp") => {
     const trimmed = text.trim();
     // Extension UI System (Phase 1): exact-match slash command opens the
     // matching module modal and suppresses the prompt send.
@@ -762,7 +762,7 @@ export default function App() {
         console.warn(`[extension-ui] Dropping module "${colliding.id}" — command ${colliding.command} collides with a built-in.`);
       }
     }
-    handleSend(text, images);
+    handleSend(text, images, delivery);
     if (selectedId) {
       clearDraftForSession(selectedId);
       clearImagesForSession(selectedId);
