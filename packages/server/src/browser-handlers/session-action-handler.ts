@@ -256,6 +256,7 @@ export async function handleSendPrompt(
       sessionId: msg.sessionId,
       text: msg.text,
       images: msg.images,
+      delivery: msg.delivery,
     });
     if (!sent) {
       console.error(`[dashboard] send_prompt failed: no bridge connection for session ${msg.sessionId}`);
