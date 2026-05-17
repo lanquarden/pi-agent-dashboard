@@ -486,6 +486,17 @@ describe("CommandHandler", () => {
       expect(pi.sendUserMessage).not.toHaveBeenCalled();
     });
 
+    it("should pass delivery to sessionPrompt for slash commands", async () => {
+      const pi = createMockPi();
+      const sessionPrompt = vi.fn();
+      const handler = createCommandHandler(pi as any, "s1", { sessionPrompt });
+
+      await handler.handle({ type: "send_prompt", sessionId: "s1", text: "/some-command", delivery: "steer" } as any);
+
+      expect(sessionPrompt).toHaveBeenCalledWith("/some-command", "steer");
+      expect(pi.sendUserMessage).not.toHaveBeenCalled();
+    });
+
     it("should emit command_feedback for slash commands", async () => {
       const pi = createMockPi();
       const sessionPrompt = vi.fn();
