@@ -329,11 +329,15 @@ export function createCommandHandler(
               // Test / non-bridge callers: apply the extension-command dispatch
               // branch inline before falling through to sendUserMessage. Keeps
               // both call sites in lockstep per spec routing-step 9.
+              // Pass msg.delivery so Path B uses correct streamingBehavior.
+              // See change: fix-slash-dispatch-delivery.
               const handled = await tryDispatchExtensionCommand(
                 pi,
                 parsed.text,
                 sessionId,
                 options?.eventSink,
+                undefined, // no connection → Path C disabled
+                msg.delivery,
               );
               if (!handled) {
                 // sendUserMessage exempt from gating: only typed single-line

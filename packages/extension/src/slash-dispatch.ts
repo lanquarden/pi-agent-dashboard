@@ -38,9 +38,6 @@ export interface DispatchConnection {
   send(msg: ExtensionToServerMessage): void;
 }
 
-const PI_071_REQUIRED =
-  "Extension slash commands cannot be dispatched from the dashboard yet — requires pi 0.71+ (`pi.dispatchCommand`). Invoke from the pi TUI, or use the extension's tools directly.";
-
 function emitFeedback(
   sink: FeedbackSink | undefined,
   sessionId: string,
@@ -75,6 +72,7 @@ export async function tryDispatchExtensionCommand(
   sessionId: string,
   sink: FeedbackSink | undefined,
   connection?: DispatchConnection,
+  delivery?: "steer" | "followUp",
 ): Promise<boolean> {
   // Defensive: pi.getCommands() can throw on a stale ctx during dispose.
   let commands: Array<{ name: string; source?: string }> = [];
@@ -88,12 +86,13 @@ export async function tryDispatchExtensionCommand(
 
   if (!isExtensionSlashCommand(text, commands)) return false;
 
-  emitFeedback(sink, sessionId, text, "started");
-
   // Path B (preferred when available): pi 0.71+ exposes dispatchCommand.
+  // Note: as of pi 0.74.1, dispatchCommand does NOT exist in the ExtensionAPI.
+  // This path is dead code until pi ships the API; preserved for future use.
   if (hasDispatchCommand(pi)) {
+    emitFeedback(sink, sessionId, text, "started");
     try {
-      await (pi as any).dispatchCommand(text, { streamingBehavior: "followUp" });
+      await (pi as any).dispatchCommand(text, { streamingBehavior: delivery ?? "followUp" });
       emitFeedback(sink, sessionId, text, "completed");
     } catch (err: any) {
       const message = err instanceof Error ? err.message : String(err);
@@ -108,6 +107,7 @@ export async function tryDispatchExtensionCommand(
   // terminal event for this path — that would duplicate the reducer's
   // started→terminal upsert. See change: add-rpc-stdin-dispatch-with-keeper-sidecar.
   if (connection && isHeadlessRpcSession()) {
+    emitFeedback(sink, sessionId, text, "started");
     connection.send({
       type: "dispatch_extension_command",
       sessionId,
@@ -117,7 +117,15 @@ export async function tryDispatchExtensionCommand(
     return true;
   }
 
-  // Path D (stopgap): no dispatchCommand and not headless (tmux / wt / unrecognized).
-  emitFeedback(sink, sessionId, text, "error", PI_071_REQUIRED);
-  return true;
+  // Path D: No dispatchCommand, not headless (tmux / wt).
+  // Pi 0.74+ handles extension commands internally via its prompt() method
+  // (called by sendUserMessage). Return false so the caller falls through
+  // to sendUserMessage — pi dispatches via _tryExecuteExtensionCommand.
+  // No command_feedback emitted here; pi handles execution silently.
+  // See change: fix-slash-dispatch-delivery.
+  console.warn(
+    `[dashboard] dispatchCommand not available. ` +
+      `Falling through to pi.sendUserMessage for command "${text}".`,
+  );
+  return false;
 }
