@@ -50,9 +50,9 @@
 ## 7. `prompt-expander.ts`: global prompt template resolution
 
 - [x] 7.1 Add parallel `source: "prompt"` lookup in `resolveTemplate` Step 3.
-  - After the existing `commands.find(c => c.source === "skill")`, add a second `.find()` for `c.source === "prompt" && c.path`.
+  - After the existing `commands.find(c => c.source === "skill")`, add a second `.find()` for `c.source === "prompt"`.
+  - `pi.getCommands()` returns `SlashCommandInfo` objects where the path lives at `sourceInfo.path`, not `c.path` directly. Use `c.path || c.sourceInfo?.path` in both the `.find()` predicate and the `existsSync` guard.
   - Return `{ filePath, source: "prompt", resolvedName: cand }` on hit.
-  - `pi.getCommands()` already returns every prompt template (global + project + package) with its path — no additional directory scanning needed.
   - File: `packages/extension/src/prompt-expander.ts`
 
 ## Verification
