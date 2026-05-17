@@ -50,7 +50,7 @@ The pure `typeof` check may miss getter-backed or Proxy-hidden properties. Added
 
 **Decision**: Add a parallel `source: "prompt"` probe in Step 3 of `resolveTemplate`, immediately after the skill lookup. Both probes share the same resolution loop over candidate-name variants, preserving original-form-first precedence. `pi.getCommands()` already returns every prompt template (global + project + package) with its absolute path, so no additional directory scanning is needed.
 
-**Trade-off**: The `pi.getCommands()` call is already present for skills; the additional `.find()` is O(n) on the same array and adds negligible cost. `pi.getCommands()` returns `SlashCommandInfo` objects where the path lives at `sourceInfo.path` — the lookup must use `c.path || c.sourceInfo?.path` for compatibility. No fs operations added.
+**Trade-off**: The `pi.getCommands()` call is already present for skills; the additional `.find()` is O(n) on the same array and adds negligible cost. `SlashCommandInfo` objects carry the path at `sourceInfo.path` — the lookup uses `c.sourceInfo?.path` directly. No fs operations added.
 
 ### Decision 4: No `started` command_feedback for Path B until `dispatchCommand` ships
 
