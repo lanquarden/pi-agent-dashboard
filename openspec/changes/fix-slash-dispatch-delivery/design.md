@@ -44,6 +44,14 @@ The `delivery` parameter on `tryDispatchExtensionCommand` defaults to `"followUp
 
 The pure `typeof` check may miss getter-backed or Proxy-hidden properties. Added a fallback that uses the `in` operator and a guarded `typeof` on the resolved value. This is defensive — no production scenario needs it since `dispatchCommand` never shipped. Preserved for future pi versions.
 
+### Decision 5: `resolveTemplate` queries `pi.getCommands()` for prompt templates
+
+**Problem**: `resolveTemplate` only checked `pi.getCommands()` for `source: "skill"` entries. Prompt templates registered with `source: "prompt"` (e.g. `/session-summary` installed by pi at `~/.pi/agent/prompts/`) were not found.
+
+**Decision**: Add a parallel `source: "prompt"` probe in Step 3 of `resolveTemplate`, immediately after the skill lookup. Both probes share the same resolution loop over candidate-name variants, preserving original-form-first precedence. `pi.getCommands()` already returns every prompt template (global + project + package) with its absolute path, so no additional directory scanning is needed.
+
+**Trade-off**: The `pi.getCommands()` call is already present for skills; the additional `.find()` is O(n) on the same array and adds negligible cost. No fs operations added.
+
 ### Decision 4: No `started` command_feedback for Path B until `dispatchCommand` ships
 
 Path B's `started` feedback emission was moved inside the `hasDispatchCommand` guard (alongside the `completed`/`error` emission). Previously, `started` was emitted before the path-decision block, which would leave a dangling `started` event when Path D returned `false` without a terminal event. Now each path emits its own feedback (or none, for the new Path D).

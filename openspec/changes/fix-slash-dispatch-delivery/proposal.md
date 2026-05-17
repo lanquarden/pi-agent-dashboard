@@ -6,6 +6,8 @@ Two issues with the dashboard bridge's extension slash-command dispatch path:
 
 **Issue 2 — stopgap fires when `dispatchCommand` is not available.** Users on pi 0.74.1 see the stopgap error "requires pi 0.71+ (pi.dispatchCommand). Invoke from the pi TUI" when typing extension slash commands from the dashboard. The root cause: `dispatchCommand` **was never added to pi's ExtensionAPI** — it was a planned future API that did not ship. The bridge's Path D stopgap intercepts the slash command and shows an error, preventing pi from handling it natively. Pi 0.74+ already handles extension commands internally via its `prompt()` method (called by `sendUserMessage`), so the bridge should let those commands fall through to pi's native dispatch.
 
+**Issue 3 — global prompt templates not resolved by `expandPromptTemplateFromDisk`.** Users with prompt templates installed at `~/.pi/agent/prompts/` (e.g. `/session-summary`) cannot invoke them from the dashboard because `resolveTemplate`'s `pi.getCommands()` fallback only queries for `source: "skill"`, so prompt templates registered via pi's prompt-template system (`source: "prompt"`) are not found. `pi.getCommands()` already returns every prompt template with its absolute path — the lookup just needs to also check for `source: "prompt"`.
+
 ## What Changes
 
 - **MODIFIED**: `packages/extension/src/slash-dispatch.ts` — `tryDispatchExtensionCommand` gains optional `delivery?: "steer" | "followUp"` parameter, used for `streamingBehavior` on the `dispatchCommand` call (Path B). Path D (stopgap) removed — instead returns `false` so the caller falls through to `pi.sendUserMessage`, where pi 0.74+ handles extension commands internally. Console warning added when `dispatchCommand` is unavailable (Path D).
@@ -13,6 +15,7 @@ Two issues with the dashboard bridge's extension slash-command dispatch path:
 - **MODIFIED**: `packages/extension/src/command-handler.ts` — `sessionPrompt` callback type updated to include `delivery` parameter. `msg.delivery` passed to `tryDispatchExtensionCommand` at the non-bridge call site (slash else-arm) for correct `streamingBehavior` propagation.
 - **MODIFIED**: `packages/shared/src/protocol.ts` — `SendPromptToExtensionMessage` gains optional `delivery?: "steer" | "followUp"` field.
 - **MODIFIED**: `packages/extension/src/bridge-context.ts` — `hasDispatchCommand` detection improved with `in`-operator fallback for getter-backed / Proxy-hidden properties.
+- **MODIFIED**: `packages/extension/src/prompt-expander.ts` — `resolveTemplate` Step 3 adds parallel `source: "prompt"` lookup alongside existing `source: "skill"` lookup in `pi.getCommands()`, enabling global prompt template expansion from the dashboard.
 
 ## Capabilities
 
@@ -28,10 +31,11 @@ Two issues with the dashboard bridge's extension slash-command dispatch path:
   - `packages/extension/src/command-handler.ts` — delivery param type + msg.delivery pass-through
   - `packages/shared/src/protocol.ts` — delivery field on `SendPromptToExtensionMessage`
   - `packages/extension/src/bridge-context.ts` — `hasDispatchCommand` improvement
+  - `packages/extension/src/prompt-expander.ts` — global prompt template resolution (pi.getCommands() prompt lookup)
 - **MODIFIED files** (tests):
   - `packages/extension/src/__tests__/bridge-slash-command-routing.test.ts` — delivery tests, Path D behavior update
   - `packages/extension/src/__tests__/command-handler.test.ts` — delivery propagation test
-- **Backward compatibility**: Extension commands from the dashboard that previously got a stopgap error now work (pi dispatches internally). The `delivery` field on `SendPromptToExtensionMessage` is optional; clients that don't send it get `"followUp"` behavior (unchanged). Templates and non-extension slashes are unaffected.
+- **Backward compatibility**: Extension commands from the dashboard that previously got a stopgap error now work (pi dispatches internally). The `delivery` field on `SendPromptToExtensionMessage` is optional; clients that don't send it get `"followUp"` behavior (unchanged). Global prompt templates (e.g. `/session-summary`) now resolve and expand correctly when invoked from the dashboard. Non-extension slash commands without matching templates remain unaffected (passed to LLM as raw text).
 
 ## Depends On
 
