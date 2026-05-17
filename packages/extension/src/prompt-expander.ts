@@ -106,16 +106,22 @@ function resolveTemplate(
       try {
         const commands = pi.getCommands();
         const skill = commands.find(
-          (c: any) => c.name === cand && c.source === "skill" && c.path,
+          (c: any) => c.name === cand && c.source === "skill" && (c.path || c.sourceInfo?.path),
         );
-        if (skill?.path && existsSync(skill.path)) {
-          return { filePath: skill.path, source: "skill", resolvedName: cand };
+        if (skill?.path || skill?.sourceInfo?.path) {
+          const skillPath = skill.path || skill.sourceInfo.path;
+          if (existsSync(skillPath)) {
+            return { filePath: skillPath, source: "skill", resolvedName: cand };
+          }
         }
         const prompt = commands.find(
-          (c: any) => c.name === cand && c.source === "prompt" && c.path,
+          (c: any) => c.name === cand && c.source === "prompt" && (c.path || c.sourceInfo?.path),
         );
-        if (prompt?.path && existsSync(prompt.path)) {
-          return { filePath: prompt.path, source: "prompt", resolvedName: cand };
+        if (prompt?.path || prompt?.sourceInfo?.path) {
+          const promptPath = prompt.path || prompt.sourceInfo.path;
+          if (existsSync(promptPath)) {
+            return { filePath: promptPath, source: "prompt", resolvedName: cand };
+          }
         }
       } catch { /* ignore */ }
     }
