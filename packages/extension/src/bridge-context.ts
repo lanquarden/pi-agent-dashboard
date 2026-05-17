@@ -83,10 +83,30 @@ export function isExtensionSlashCommand(
 /**
  * Feature-detect upstream `pi.dispatchCommand(text, opts)` (pi 0.71+).
  * Returns true iff the field is a function on the supplied object.
- * See change: fix-extension-slash-commands-in-dashboard.
+ *
+ * Uses both `typeof` (which traverses the prototype chain) and `in` (which
+ * catches properties defined via getters / Proxy traps that `typeof` alone
+ * might miss). The double-check avoids false negatives when pi wraps
+ * dispatchCommand behind a Proxy or a getter.
+ * See change: fix-extension-slash-commands-in-dashboard,
+ *             fix-slash-dispatch-delivery.
  */
 export function hasDispatchCommand(pi: unknown): boolean {
-  return typeof (pi as any)?.dispatchCommand === "function";
+  if (pi == null) return false;
+  const piAny = pi as any;
+  // Standard typeof check (works for own + prototype methods).
+  if (typeof piAny.dispatchCommand === "function") return true;
+  // Fallback: check with `in` operator for getter-backed / Proxy-hidden
+  // properties that `typeof` alone might not resolve.
+  if ("dispatchCommand" in piAny) {
+    try {
+      const val = piAny.dispatchCommand;
+      if (typeof val === "function") return true;
+    } catch {
+      // Getter threw — not usable.
+    }
+  }
+  return false;
 }
 
 /**

@@ -781,12 +781,15 @@ function initBridge(pi: ExtensionAPI) {
       // The `connection` arg enables Path C (headless RPC → server-routed
       // dispatch via the keeper UDS); see change:
       // add-rpc-stdin-dispatch-with-keeper-sidecar.
+      // Pass `delivery` so Path B uses the correct `streamingBehavior` for
+      // steering vs followUp. See change: fix-slash-dispatch-delivery.
       const handled = await tryDispatchExtensionCommand(
         pi,
         text,
         sessionId,
         (msg) => connection.send(msg),
         connection,
+        delivery,
       );
       if (handled) return;
 
