@@ -47,6 +47,15 @@
 - [x] 6.7 `command-handler.test.ts` — update `sessionPrompt` assertion to include second `undefined` arg.
   - Files: `packages/extension/src/__tests__/bridge-slash-command-routing.test.ts`, `packages/extension/src/__tests__/command-handler.test.ts`
 
+## 7. `prompt-expander.ts`: global prompt template resolution
+
+- [x] 7.1 Add parallel `source: "prompt"` lookup in `resolveTemplate` Step 3.
+  - After the existing `commands.find(c => c.source === "skill")`, add a second `.find()` for `c.source === "prompt" && c.path`.
+  - Return `{ filePath, source: "prompt", resolvedName: cand }` on hit.
+  - `pi.getCommands()` already returns every prompt template (global + project + package) with its path — no additional directory scanning needed.
+  - File: `packages/extension/src/prompt-expander.ts`
+
 ## Verification
 
-- [x] 6.8 Run `npm test` — all tests pass (excluding known pre-existing failures).
+- [x] 7.2 Run `npm test` — all 714 tests pass (no regressions).
+- [x] 7.3 Manual verification — `/session-summary` invoked from dashboard successfully expands the template from `~/.pi/agent/prompts/session-summary.md` and the agent executes the workflow.
