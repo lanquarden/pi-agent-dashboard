@@ -8,10 +8,13 @@
  *     dashboard-spawned headless `pi --mode rpc` AND a `connection` is wired
  *     → emit `dispatch_extension_command` to the server (server forwards to
  *     the per-session RPC keeper UDS and emits the terminal command_feedback).
- *   - Path D (stopgap, last resort): `pi.dispatchCommand` absent AND the bridge
- *     is NOT headless (tmux / wt / unrecognized spawn shape) OR no `connection`
- *     was supplied → emit `command_feedback {status:"error"}` with a pi-version
- *     reminder.
+ *   - Path D: `pi.dispatchCommand` absent AND the bridge is NOT headless
+ *     (tmux / wt) OR no `connection` was supplied → return `false` so the
+ *     caller falls through to its template-expansion / sendUserMessage path.
+ *     Note: pi.sendUserMessage() hardcodes expandPromptTemplates: false, which
+ *     skips _tryExecuteExtensionCommand; extension commands sent this way
+ *     become regular LLM messages. This is a pi limitation — the bridge has
+ *     no mechanism to dispatch extension commands outside the RPC path.
  *
  * If `text` is NOT an extension command, return `false` so the caller can
  * fall through to its existing template-expansion / sendUserMessage path.
@@ -21,7 +24,8 @@
  * Path C does NOT emit a terminal event — the server emits it.
  *
  * See change: fix-extension-slash-commands-in-dashboard,
- *             add-rpc-stdin-dispatch-with-keeper-sidecar.
+ *             add-rpc-stdin-dispatch-with-keeper-sidecar,
+ *             fix-slash-dispatch-delivery.
  */
 import crypto from "node:crypto";
 import type { ExtensionToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
@@ -117,15 +121,17 @@ export async function tryDispatchExtensionCommand(
     return true;
   }
 
-  // Path D: No dispatchCommand, not headless (tmux / wt).
-  // Pi 0.74+ handles extension commands internally via its prompt() method
-  // (called by sendUserMessage). Return false so the caller falls through
-  // to sendUserMessage — pi dispatches via _tryExecuteExtensionCommand.
-  // No command_feedback emitted here; pi handles execution silently.
+  // Path D: No dispatchCommand, not headless (tmux / wt) or no connection.
+  // Extension commands can only be dispatched through the RPC keeper, which
+  // is available for headless sessions (`pi --mode rpc`). For tmux/wt sessions
+  // there is no injection channel — the command becomes a regular LLM message.
+  // To enable extension command dispatch for headless sessions:
+  //   { "spawnStrategy": "headless", "useRpcKeeper": true }
   // See change: fix-slash-dispatch-delivery.
-  console.warn(
-    `[dashboard] dispatchCommand not available. ` +
-      `Falling through to pi.sendUserMessage for command "${text}".`,
-  );
-  return false;
+  const RPC_KEEPER_HINT =
+    "Extension slash commands cannot be dispatched from the dashboard for " +
+    "non-headless (tmux/wt) sessions. If you're using headless mode, add " +
+    '"useRpcKeeper": true to your dashboard config (~/.pi/dashboard/config.json).';
+  emitFeedback(sink, sessionId, text, "error", RPC_KEEPER_HINT);
+  return true;
 }
