@@ -176,6 +176,16 @@ export function registerPluginActivationRoutes(
       }
       writeRawConfig({ ...existing, plugins: nextPlugins });
 
+      // Update the in-memory PluginStatusStore so the toggle takes effect
+      // immediately (without restart). See change: fix-plugin-toggle-no-restart.
+      const store = getPluginStatusStore();
+      for (const flip of flips) {
+        const existingStatus = store.getStatus(flip.id);
+        if (existingStatus) {
+          store.setStatus({ ...existingStatus, enabled: flip.enabled });
+        }
+      }
+
       for (const [flipId, merged] of mergedPerId) {
         broadcast({ type: "plugin_config_update", id: flipId, config: merged });
       }
