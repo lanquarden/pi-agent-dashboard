@@ -86,3 +86,27 @@
 - [x] 10.1 Documented in proposal.md that `pi-dashboard-agent` v0.1.x is the producer.
 - [x] 10.2 Cross-referenced the scaffold change in the other repo.
 - [ ] 10.3 (FUTURE) Once `pi-dashboard-agent` v0.1.x is published, drop the upgrade-footnote from `SubagentDetailView` Tier 2 path (entries will reliably be present).
+
+## 12. Reducer backfill from `tool_execution_end` (PENDING)
+
+Closes the gap where `session.subagents.get(agentId)` is empty after `/resume` or page refresh, even though the producer persisted the full `AgentDetails` inside the parent's `ToolResultMessage.details`. See design.md Decision 7.
+
+- [ ] 12.1 In `packages/client/src/lib/event-reducer.ts`, extend the existing `tool_execution_end` handler (around `event-reducer.ts:1105`) with a backfill branch that fires when `data.toolName === "Agent"` AND `(data.details as Record<string, unknown> | undefined)?.agentId` is a non-empty string.
+- [ ] 12.2 Inside the branch, build a `SubagentState` patch via the existing `readSubagentDetails(details)` helper plus derived fields:
+  - `status`: `"failed"` if `data.isError`, else `"completed"`
+  - `result`: `data.result` (string) when `!isError`
+  - `error`: `data.result` when `isError`, falling back to `data.details.error`
+  - `durationMs`: `data.details.durationMs`
+  - `tokens`: `data.details.tokensUsage`
+  - `toolUses`: `data.details.toolUses`
+- [ ] 12.3 Apply the patch with merge semantics: `next.subagents.set(agentId, mergeNonUndefined(existing ?? {}, patch))` where `mergeNonUndefined` preserves prior non-undefined fields rather than overwriting with undefined. This keeps live `subagent_*` + replay paths commutative.
+- [ ] 12.4 Ensure `next.subagents = new Map(next.subagents)` is performed before the `.set(...)` so React equality comparisons detect the change (same pattern as the existing `subagent_*` handlers).
+- [ ] 12.5 Backfill MUST be a no-op when `toolName !== "Agent"` or `agentId` is absent (preserve existing `tool_execution_end` behavior for unrelated tools and for `@tintinweb/pi-subagents` legacy payloads without `agentId`).
+- [ ] 12.6 Unit tests in `packages/client/src/lib/__tests__/event-reducer.test.ts`:
+  - Replayed completed Agent run with `entries[]` populates the subagents map with `status: "completed"` and all derived fields.
+  - Replayed failed Agent run (`isError: true`) populates with `status: "failed"` and `error` from `data.result`.
+  - Live `subagent_completed` followed by a later `tool_execution_end` backfill for the same `agentId` does not overwrite live-only fields (e.g. `activity` set on `subagent_started`).
+  - Backfill is a no-op for `toolName: "bash"` even when `details` is present.
+  - Backfill is a no-op for `toolName: "Agent"` when `details.agentId` is missing.
+  - The existing `next.messages[i].toolDetails` write path remains intact (regression guard).
+- [ ] 12.7 Verify end-to-end with a manual replay scenario: start the dashboard against a session JSONL that contains a completed Agent tool result with full `AgentDetails`, then click the card's expand toggle and the popout button. Both surfaces SHALL render the full timeline.

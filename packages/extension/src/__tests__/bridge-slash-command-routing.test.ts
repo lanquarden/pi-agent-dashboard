@@ -399,6 +399,75 @@ describe("tryDispatchExtensionCommand: Path B/C/D mutual exclusion", () => {
   });
 });
 
+// See change: add-steering-message (task 4.4).
+// Verify the slash-routing fallback paths that call sendUserMessage honor the
+// delivery field — `"steer"` → deliverAs:"steer"; absent/"followUp" → deliverAs:"followUp".
+describe("bridge slash routing: delivery field → sendUserMessage deliverAs", () => {
+  function lastDeliverAs(sendUserMessage: ReturnType<typeof vi.fn>): string | undefined {
+    const lastCall = sendUserMessage.mock.calls.at(-1);
+    if (!lastCall) return undefined;
+    const opts = lastCall[1];
+    return opts?.deliverAs;
+  }
+
+  it("skill command + delivery:'steer' → sendUserMessage called with deliverAs:'steer'", async () => {
+    const stub = makeStubPi({ withDispatch: true });
+    await drive("/skill:foo", stub, "steer");
+    expect(stub.sendUserMessage).toHaveBeenCalledTimes(1);
+    expect(lastDeliverAs(stub.sendUserMessage)).toBe("steer");
+  });
+
+  it("skill command + delivery:'followUp' → sendUserMessage called with deliverAs:'followUp'", async () => {
+    const stub = makeStubPi({ withDispatch: true });
+    await drive("/skill:foo", stub, "followUp");
+    expect(stub.sendUserMessage).toHaveBeenCalledTimes(1);
+    expect(lastDeliverAs(stub.sendUserMessage)).toBe("followUp");
+  });
+
+  it("skill command + delivery omitted → sendUserMessage defaults to deliverAs:'followUp'", async () => {
+    const stub = makeStubPi({ withDispatch: true });
+    await drive("/skill:foo", stub);
+    expect(stub.sendUserMessage).toHaveBeenCalledTimes(1);
+    expect(lastDeliverAs(stub.sendUserMessage)).toBe("followUp");
+  });
+
+  it("prompt template + delivery:'steer' → deliverAs:'steer'", async () => {
+    const stub = makeStubPi({ withDispatch: true });
+    await drive("/review", stub, "steer");
+    expect(lastDeliverAs(stub.sendUserMessage)).toBe("steer");
+  });
+
+  it("passthrough text + delivery:'steer' → deliverAs:'steer'", async () => {
+    const stub = makeStubPi({ withDispatch: true });
+    await drive("hello world", stub, "steer");
+    expect(lastDeliverAs(stub.sendUserMessage)).toBe("steer");
+  });
+
+  it("passthrough text + delivery omitted → deliverAs:'followUp'", async () => {
+    const stub = makeStubPi({ withDispatch: true });
+    await drive("hello world", stub);
+    expect(lastDeliverAs(stub.sendUserMessage)).toBe("followUp");
+  });
+
+  it("unrecognized slash + delivery:'steer' → deliverAs:'steer'", async () => {
+    const stub = makeStubPi({ withDispatch: true });
+    await drive("/totally-unknown-command", stub, "steer");
+    expect(lastDeliverAs(stub.sendUserMessage)).toBe("steer");
+  });
+
+  it("bridge-native /__dashboard_reload fallback + delivery:'steer' → deliverAs:'steer'", async () => {
+    const stub = makeStubPi({ withDispatch: true });
+    await drive("/__dashboard_reload", stub, "steer");
+    expect(lastDeliverAs(stub.sendUserMessage)).toBe("steer");
+  });
+
+  it("getCommands throws fallback + delivery:'steer' → deliverAs:'steer'", async () => {
+    const stub = makeStubPi({ withDispatch: true, getCommandsThrows: true });
+    await drive("/ctx-stats", stub, "steer");
+    expect(lastDeliverAs(stub.sendUserMessage)).toBe("steer");
+  });
+});
+
 describe("hasDispatchCommand", () => {
   it("returns true when field is a function", () => {
     expect(hasDispatchCommand({ dispatchCommand: () => {} })).toBe(true);

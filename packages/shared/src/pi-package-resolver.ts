@@ -101,6 +101,43 @@ export function resolvePiPackageEntry(
   return resolvePiPackage(spec, opts)?.entryPath ?? null;
 }
 
+/**
+ * List every resolved pi package across the requested scopes. Iterates
+ * `settings.packages[]` in project then user scope (matching
+ * `resolvePiPackage`'s precedence) and yields a `ResolvedPiPackage` for
+ * every entry whose computed install path exists on disk.
+ *
+ * Unlike `resolvePiPackage`, this performs no name match — callers that
+ * need to find any package satisfying a per-directory predicate (e.g.
+ * "contains `bridge.ts`") consume the list directly.
+ *
+ * Order: project-scope hits first, then user-scope. Duplicates (same
+ * absolute packageDir) are de-duplicated keeping the first occurrence.
+ *
+ * Added by change: fix-electron-cold-launch-probe-cascade (Bug A).
+ * Used by `launch-source.ts::probePiExtension` to iterate the actual
+ * `packages[]` schema instead of the non-existent `extensions[]`.
+ */
+export function listPiPackages(opts: ResolvePiPackageOptions = {}): ResolvedPiPackage[] {
+  const agentDir = opts.agentDir ?? path.join(os.homedir(), ".pi", "agent");
+  const scope = opts.scope ?? "any";
+  const cwd = opts.cwd;
+  const npmRoot = opts.npmRoot ?? rootGlobalOr("");
+
+  const out: ResolvedPiPackage[] = [];
+  const seen = new Set<string>();
+  const collect = (s: "user" | "project") => {
+    for (const r of iterateInScope(s, { agentDir, cwd, npmRoot })) {
+      if (seen.has(r.packageDir)) continue;
+      seen.add(r.packageDir);
+      out.push(r);
+    }
+  };
+  if ((scope === "project" || scope === "any") && cwd) collect("project");
+  if (scope === "user" || scope === "any") collect("user");
+  return out;
+}
+
 // ── Internals ───────────────────────────────────────────────────────
 
 interface ScopeContext {
@@ -122,16 +159,31 @@ function findInScope(
   scope: "user" | "project",
   ctx: ScopeContext,
 ): ResolvedPiPackage | null {
+  for (const r of iterateInScope(scope, ctx)) {
+    if (r.packageJsonName === spec) return r;
+  }
+  return null;
+}
+
+/**
+ * Shared iteration core used by both `findInScope` (name-matched lookup)
+ * and `listPiPackages` (no name filter). Yields every entry whose computed
+ * install path exists on disk; reads `package.json` lazily.
+ */
+function* iterateInScope(
+  scope: "user" | "project",
+  ctx: ScopeContext,
+): Generator<ResolvedPiPackage> {
   const settingsPath =
     scope === "user"
       ? path.join(ctx.agentDir, "settings.json")
       : ctx.cwd
       ? path.join(ctx.cwd, ".pi", "settings.json")
       : null;
-  if (!settingsPath) return null;
+  if (!settingsPath) return;
 
   const packages = readSettingsPackages(settingsPath);
-  if (packages.length === 0) return null;
+  if (packages.length === 0) return;
 
   const settingsDir = path.dirname(settingsPath);
   for (const entry of packages) {
@@ -142,10 +194,8 @@ function findInScope(
 
     const pkgJson = readPackageJson(packageDir);
     const name = pkgJson?.name ?? null;
-    if (name !== spec) continue;
-
     const entryPath = resolveEntryPath(packageDir, pkgJson ?? {});
-    return {
+    yield {
       packageDir,
       entryPath,
       scope,
@@ -153,7 +203,6 @@ function findInScope(
       packageJsonName: name,
     };
   }
-  return null;
 }
 
 /**

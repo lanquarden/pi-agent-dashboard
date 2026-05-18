@@ -180,3 +180,60 @@ The `ToolContext` interface SHALL include optional `sessionId?: string` and `ses
 - **WHEN** `ChatView` constructs the `toolContext` passed to renderers
 - **THEN** the object SHALL include `sessionId` set to the current session id (or undefined when no session is selected)
 - **AND** it SHALL include `session` set to the current `SessionState` (or undefined)
+
+### Requirement: Reducer SHALL backfill `subagents` map from `tool_execution_end`
+
+The reducer's `tool_execution_end` handler SHALL also populate `next.subagents` whenever the event refers to a subagent run — i.e. `data.toolName === "Agent"` AND `data.details?.agentId` is a non-empty string.
+
+Without this, `session.subagents.get(agentId)` is empty after parent-session `/resume` and after any dashboard refresh that occurs once the subagent has completed (the only writer today is the live `subagent_*` event stream, which is NOT synthesized by `state-replay.ts`). Producers persist the full `AgentDetails` (including `entries[]`) inside the parent's `ToolResultMessage.details` per the producer contract — `state-replay.ts` already threads `msg.details` into the synthesized `tool_execution_end` event payload, so the data is available at this seam. This requirement closes the loop on the consumer side.
+
+The handler SHALL derive `SubagentState` fields from `data.details` via the existing `readSubagentDetails(details)` helper, plus:
+
+- `status` ← `"failed"` if `data.isError === true`, else `"completed"`.
+- `result` ← `data.result` when a string and `!isError`.
+- `error` ← `data.result` when `isError === true`, or `data.details.error` if present.
+- `durationMs` ← `data.details.durationMs` when present.
+- `tokens` ← `data.details.tokensUsage` when present (the raw `{input, output, total}` shape).
+- `toolUses` ← `data.details.toolUses` when present.
+
+When the subagent has ALREADY been recorded in `next.subagents` (e.g. a live `subagent_completed` event arrived earlier in the same session lifetime), the backfill SHALL merge rather than replace: existing fields are preserved unless the new `data.details` provides a non-undefined value. This makes the live path and the replay path commutative — the final state does not depend on event ordering.
+
+Backfill SHALL be a no-op when `toolName !== "Agent"` or `data.details?.agentId` is absent — `tool_execution_end` events for unrelated tools MUST NOT touch the subagents map.
+
+#### Scenario: Replayed completed subagent populates the map
+
+- **GIVEN** a parent session JSONL containing a `ToolResultMessage` with `toolName: "Agent"`, `isError: false`, and `details: { agentId: "sub_abc", entries: [...], durationMs: 4200, tokensUsage: {input: 500, output: 200, total: 700}, displayName: "explorer" }`
+- **WHEN** the dashboard subscribes to the session and `state-replay.ts` synthesizes a `tool_execution_end` event from that entry
+- **THEN** after the reducer processes the event, `state.subagents.get("sub_abc")` SHALL exist
+- **AND** its `status` SHALL be `"completed"`
+- **AND** its `entries` SHALL equal the persisted array
+- **AND** its `durationMs` SHALL be `4200`
+- **AND** its `tokens` SHALL equal `{input: 500, output: 200, total: 700}`
+- **AND** its `displayName` SHALL be `"explorer"`
+
+#### Scenario: Replayed failed subagent populates the map with failed status
+
+- **GIVEN** a `tool_execution_end` event with `toolName: "Agent"`, `isError: true`, `result: "aborted by user"`, `details: { agentId: "sub_xyz" }`
+- **WHEN** the reducer processes the event
+- **THEN** `state.subagents.get("sub_xyz").status` SHALL be `"failed"`
+- **AND** the resulting state's `error` SHALL be `"aborted by user"`
+
+#### Scenario: Backfill merges with prior live state without overwriting
+
+- **GIVEN** the subagents map already contains `sub_abc` with `displayName: "liveName"` from a prior `subagent_started` event
+- **WHEN** a `tool_execution_end` arrives with `details: { agentId: "sub_abc", displayName: undefined, durationMs: 1234 }`
+- **THEN** the resulting `state.subagents.get("sub_abc").displayName` SHALL remain `"liveName"` (not overwritten with undefined)
+- **AND** `durationMs` SHALL be updated to `1234`
+
+#### Scenario: Backfill is a no-op for non-Agent tools
+
+- **GIVEN** a `tool_execution_end` event with `toolName: "bash"` and `details: { foo: "bar" }` (no `agentId`)
+- **WHEN** the reducer processes the event
+- **THEN** `state.subagents` SHALL be unchanged
+
+#### Scenario: Backfill is a no-op when agentId is absent
+
+- **GIVEN** a `tool_execution_end` event with `toolName: "Agent"` but `details` lacks an `agentId` (e.g. legacy `@tintinweb/pi-subagents` payload)
+- **WHEN** the reducer processes the event
+- **THEN** `state.subagents` SHALL be unchanged
+- **AND** `next.messages[i].toolDetails` SHALL still be populated as today (the existing `toolDetails` path is unaffected)

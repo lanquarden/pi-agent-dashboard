@@ -241,7 +241,7 @@ describe("buildOfflineInstallArgs", () => {
 			"/u/.pi-dashboard",
 			"--cache",
 			"/u/.pi-dashboard/.offline-cache",
-			"--offline",
+			"--prefer-offline",
 			"--no-audit",
 			"--no-fund",
 			"a@1.0.0",

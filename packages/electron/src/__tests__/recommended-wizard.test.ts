@@ -70,10 +70,10 @@ describe("installRecommendedExtensions resolver behaviour (shape)", () => {
 		);
 		const byId = new Map(RECOMMENDED_EXTENSIONS.map((e: any) => [e.id, e.source]));
 		expect(byId.get("pi-anthropic-messages")).toBe(
-			"git@github.com:BlackBeltTechnology/pi-anthropic-messages.git",
+			"https://github.com/BlackBeltTechnology/pi-anthropic-messages.git",
 		);
 		expect(byId.get("pi-flows")).toBe(
-			"git@github.com:BlackBeltTechnology/pi-flows.git",
+			"https://github.com/BlackBeltTechnology/pi-flows.git",
 		);
 		expect(byId.get("tintinweb-pi-subagents")).toBe("npm:@tintinweb/pi-subagents");
 		expect(byId.get("pi-web-access")).toBe("npm:pi-web-access");

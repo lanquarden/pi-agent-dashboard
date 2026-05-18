@@ -525,7 +525,8 @@ describe("CommandHandler", () => {
 
       await handler.handle({ type: "send_prompt", sessionId: "s1", text: "/some-command" });
 
-      expect(pi.sendUserMessage).toHaveBeenCalledWith("/some-command");
+      // Slash fallback forwards delivery (default 'followUp'). See change: add-steering-message.
+      expect(pi.sendUserMessage).toHaveBeenCalledWith("/some-command", { deliverAs: "followUp" });
       const feedbackCalls = eventSink.mock.calls.filter(
         (c) => (c[0] as any)?.event?.eventType === "command_feedback",
       );
@@ -538,7 +539,7 @@ describe("CommandHandler", () => {
 
       await handler.handle({ type: "send_prompt", sessionId: "s1", text: "/some-command args" });
 
-      expect(pi.sendUserMessage).toHaveBeenCalledWith("/some-command args");
+      expect(pi.sendUserMessage).toHaveBeenCalledWith("/some-command args", { deliverAs: "followUp" });
     });
 
     it("should route /quit to shutdown", async () => {

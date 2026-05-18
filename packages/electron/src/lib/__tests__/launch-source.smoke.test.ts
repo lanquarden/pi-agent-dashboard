@@ -280,7 +280,7 @@ describe.skipIf(!HAS_BUNDLE || !HAS_OFFLINE_CACHE || !HAS_BUNDLED_NODE)(
         try {
           // pi-coding-agent landed (provides jiti)
           const piPkgJson = path.join(
-            ctx.managedDir, "node_modules", "@mariozechner",
+            ctx.managedDir, "node_modules", "@earendil-works",
             "pi-coding-agent", "package.json",
           );
           expect(fs.existsSync(piPkgJson), "pi-coding-agent not installed").toBe(true);
@@ -313,15 +313,16 @@ describe.skipIf(!HAS_BUNDLE || !HAS_OFFLINE_CACHE || !HAS_BUNDLED_NODE)(
           // Sanity: jiti reachable after first call.
           expect(resolveJitiAnchorOnly(ctx.cliPath)).toBeTruthy();
 
-          // Simulate AV / partial corruption: nuke the @mariozechner subtree
-          // (which contains jiti). Marker stays put — exactly the failure
-          // mode that produced the FATAL on user's Windows install.
+          // Simulate AV / partial corruption: nuke the jiti package
+          // (which the cliPath anchor walks up to via createRequire).
+          // Marker stays put — exactly the failure mode that produced
+          // the FATAL on user's Windows install.
           const mzDir = path.join(
             ctx.managedDir,
             "node_modules",
-            "@mariozechner",
+            "jiti",
           );
-          expect(fs.existsSync(mzDir), "precondition: @mariozechner present").toBe(true);
+          expect(fs.existsSync(mzDir), "precondition: jiti present").toBe(true);
           fs.rmSync(mzDir, { recursive: true, force: true });
           // Health check should now report unhealthy.
           expect(resolveJitiAnchorOnly(ctx.cliPath)).toBeNull();

@@ -13,7 +13,7 @@ flowchart TD
     Splash --> SLS[selectLaunchSource]
     SLS -->|running on :8000| Attach[source: attach]
     SLS -->|devMonorepo probe ok| Dev[source: devMonorepo]
-    SLS -->|piExtension probe ok| Ext[source: piExtension]
+    SLS -->|piExtension probe ok<br/>listPiPackages on settings.packages[]| Ext[source: piExtension]
     SLS -->|npmGlobal probe ok| Npm[source: npmGlobal]
     SLS -->|fallback| Extracted[source: extracted]
 
@@ -129,3 +129,5 @@ flowchart TD
 | Electron stops server only when starter=Electron AND pid matches | `decideShutdownOnQuit` pure helper |
 | Legacy path gated by LAUNCH_SOURCE_V2=false | `isLaunchSourceV2Enabled` defaults to true in Phase C |
 | Extracted source health-checks jiti reachability before spawn; re-extract on miss | `extractedSourceIsHealthy` in launch-source.ts |
+| Launch-source diagnostics dual-write to `~/.pi/dashboard/server.log` | `logLaunchSource` + `appendDashboardLog` in launch-source.ts (change: fix-electron-cold-launch-probe-cascade) |
+| extractBundle wipe runs real-fs (Partial<ExtractFs> in buildExtractedSource) | `buildFs` real-fs defaults for `rmSync`/`readdirSync`/`statSync`/`mkdirSync`; clears stale symlinks before `cpSync` (change: fix-electron-cold-launch-probe-cascade) |

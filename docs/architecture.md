@@ -1858,7 +1858,7 @@ See change: `eliminate-bash-on-windows-runners`.
 
 1. `attach` — health probe returns 200 within 3s on the configured port.
 2. `devMonorepo` — `!app.isPackaged AND existsSync(cwd/packages/server/src/cli.ts)`.
-3. `piExtension` — `~/.pi/agent/settings.json` has a bridge extension with resolvable server package >= `bundledMinVersion`.
+3. `piExtension` — `~/.pi/agent/settings.json#packages[]` has a bridge entry with resolvable server package >= `bundledMinVersion`. Walks `settings.packages[]` via `listPiPackages` from `pi-package-resolver.ts` (legacy `settings.extensions[]` never existed in pi schema; pre-fix probe read non-existent field and always returned null).
 4. `npmGlobal` — `which pi-dashboard` returns a real-path not under `process.resourcesPath`, version >= `bundledMinVersion`.
 5. `extracted` — always succeeds (fallback). May trigger bundle extraction from `process.resourcesPath` when version marker mismatches.
 
@@ -1867,6 +1867,10 @@ All probes are injectable (tests inject fakes). Override via `DASHBOARD_PREFER_S
 The spawned server receives `DASHBOARD_STARTER=Electron`. Lifecycle ownership rule: Electron calls `/api/shutdown` on quit ONLY when `health.starter === "Electron" AND health.pid === storedSpawnedPid`.
 
 The `LAUNCH_SOURCE_V2=false` escape hatch reverts to the legacy `mode.json` path (documented below). The flag and its legacy path will be removed in a follow-up change.
+
+**Diagnostics dual-write.** Launch-source probe diagnostics route through `logLaunchSource(level, msg)` + `appendDashboardLog(line)`. Every probe outcome writes both to stderr AND to `~/.pi/dashboard/server.log` with `[<ts>] [launch-source] <msg>` prefix. Packaged-Electron `.desktop` launches discard stderr, so the log file is the sole post-mortem trail for cold-launch probe-cascade bugs. See change: `fix-electron-cold-launch-probe-cascade`.
+
+**Extract self-heal.** `buildExtractedSource` passes `extractFs: Partial<ExtractFs>` (no no-op overrides) so `extractBundle`'s `buildFs` fills real-fs defaults for `mkdirSync`/`readdirSync`/`rmSync`/`statSync`. Selective-wipe step now clears stale absolute symlinks under `~/.pi-dashboard/node_modules/.../node_modules/.bin/X` before `cpSync`, self-healing `ERR_FS_CP_EINVAL` on any user's corrupt managed dir. See change: `fix-electron-cold-launch-probe-cascade`.
 
 ### Legacy first-launch flow (LAUNCH_SOURCE_V2=false)
 

@@ -19,6 +19,7 @@ import path from "node:path";
 import os from "node:os";
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import { launchDashboardServer } from "@blackbelt-technology/pi-dashboard-shared/server-launcher.js";
+import { listPiPackages, type ResolvedPiPackage } from "@blackbelt-technology/pi-dashboard-shared/pi-package-resolver.js";
 import { installStandalone } from "./dependency-installer.js";
 import { execFileSync } from "node:child_process";
 import { getBundledNodePath } from "./bundled-node.js";
@@ -64,7 +65,8 @@ export function parsePreferOverride(
   const raw = env["DASHBOARD_PREFER_SOURCE"];
   if (!raw) return null;
   if (VALID_SOURCE_KINDS.has(raw as SourceKind)) return raw as SourceKind;
-  console.warn(
+  logLaunchSource(
+    "warn",
     `[launch-source] Unknown DASHBOARD_PREFER_SOURCE value "${raw}"; ignoring override.`,
   );
   return null;
@@ -89,6 +91,17 @@ export interface LaunchSourceProbes {
   spawnVersion(cmd: string, timeoutMs: number): Promise<string | null>;
   realpathSync(p: string): string;
   requireResolve(id: string, options?: { paths: string[] }): string;
+  /**
+   * List every resolved pi package across user + project scopes. Used by
+   * `probePiExtension` to iterate the actual `settings.packages[]` schema
+   * (replaces the previous hand-rolled `parsePiSettings` that read the
+   * non-existent `settings.extensions[]` field). Default implementation
+   * delegates to the shared `pi-package-resolver`. Tests inject a stub
+   * returning fake packages, hermetic without touching real `~/.pi`.
+   *
+   * Added by change: fix-electron-cold-launch-probe-cascade (Bug A).
+   */
+  listPiPackages(): ResolvedPiPackage[];
 }
 
 // ── Options ───────────────────────────────────────────────────────────────────
@@ -107,7 +120,7 @@ export interface LaunchSourceOpts {
 
 // ── Default probe implementations ─────────────────────────────────────────────
 
-import { existsSync as fsExistsSync, readFileSync as fsReadFileSync, writeFileSync as fsWriteFileSync, realpathSync as fsRealpathSync, renameSync as fsRenameSync } from "node:fs";
+import { existsSync as fsExistsSync, readFileSync as fsReadFileSync, writeFileSync as fsWriteFileSync, realpathSync as fsRealpathSync, renameSync as fsRenameSync, mkdirSync as fsMkdirSync, openSync as fsOpenSync, writeSync as fsWriteSync, closeSync as fsCloseSync } from "node:fs";
 import { needsExtraction, extractBundle } from "./bundle-extract.js";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -162,6 +175,66 @@ function defaultRequireResolve(id: string, options?: { paths: string[] }): strin
   return _require.resolve(id, options);
 }
 
+// ── Diagnostic logging ───────────────────────────────────────────────────
+
+/**
+ * Append a single `[<ISO-ts>] [launch-source] ...` line to the dashboard
+ * log file (`~/.pi/dashboard/server.log`). Mirrors the header-line pattern
+ * used by `launchDashboardServer` so all launch-related diagnostics land
+ * in one place.
+ *
+ * Why: packaged-Electron `.desktop` launches discard stderr. Every silent
+ * probe failure (extracted source unhealthy, bundle extraction failed,
+ * runtime baseline install failed, ...) was previously invisible to users
+ * AND developers. This helper persists them.
+ *
+ * Best-effort: if mkdir/open/write fails, swallow — log-routing must
+ * never crash the launch.
+ *
+ * Added by change: fix-electron-cold-launch-probe-cascade (Bug C).
+ */
+function appendDashboardLog(message: string, logFile?: string): void {
+  try {
+    const file =
+      logFile ?? path.join(os.homedir(), ".pi", "dashboard", "server.log");
+    fsMkdirSync(path.dirname(file), { recursive: true });
+    const fd = fsOpenSync(file, "a");
+    try {
+      const line = `[${new Date().toISOString()}] [launch-source] ${message}\n`;
+      fsWriteSync(fd, line);
+    } finally {
+      fsCloseSync(fd);
+    }
+  } catch {
+    /* swallow — logging must never crash the launch */
+  }
+}
+
+/**
+ * Emit a diagnostic to BOTH stderr (dev-mode visibility via
+ * `electron-forge start`) AND the dashboard log file (production
+ * `.desktop` visibility).
+ */
+function logLaunchSource(level: "warn" | "error", message: string, logFile?: string): void {
+  if (level === "error") console.error(message);
+  else console.warn(message);
+  const body = message.startsWith("[launch-source] ")
+    ? message.slice("[launch-source] ".length)
+    : message;
+  appendDashboardLog(body, logFile);
+}
+
+// Re-exported for tests so they can assert log-file content without
+// touching the real `~/.pi/dashboard/server.log`.
+export const _testing = { appendDashboardLog, logLaunchSource };
+
+function defaultListPiPackages(): ResolvedPiPackage[] {
+  // Default to user scope only — launch-source has no concept of a per-cwd
+  // pi project (Electron launches from `$HOME`, not from a code repo).
+  // Tests inject their own stub.
+  return listPiPackages({ scope: "user" });
+}
+
 function buildProbes(partial?: Partial<LaunchSourceProbes>): LaunchSourceProbes {
   return {
     healthProbe: partial?.healthProbe ?? defaultHealthProbe,
@@ -173,6 +246,7 @@ function buildProbes(partial?: Partial<LaunchSourceProbes>): LaunchSourceProbes 
     spawnVersion: partial?.spawnVersion ?? defaultSpawnVersion,
     realpathSync: partial?.realpathSync ?? fsRealpathSync,
     requireResolve: partial?.requireResolve ?? defaultRequireResolve,
+    listPiPackages: partial?.listPiPackages ?? defaultListPiPackages,
   };
 }
 
@@ -213,35 +287,29 @@ function probeDevMonorepo(
   return null;
 }
 
-function parsePiSettings(
-  probes: LaunchSourceProbes,
-): { extensions?: Array<{ path: string; [k: string]: unknown }> } | null {
-  const settingsPath = path.join(os.homedir(), ".pi", "agent", "settings.json");
-  try {
-    const raw = probes.readFileSync(settingsPath, "utf-8");
-    return JSON.parse(raw) as { extensions?: Array<{ path: string }> };
-  } catch {
-    return null;
-  }
-}
-
 async function probePiExtension(
   opts: LaunchSourceOpts,
   probes: LaunchSourceProbes,
 ): Promise<LaunchSource | null> {
-  const settings = parsePiSettings(probes);
-  if (!settings?.extensions) return null;
+  // Iterate every pi package registered in `~/.pi/agent/settings.json#packages[]`
+  // via the shared resolver. Replaces the previous hand-rolled parse of
+  // `settings.extensions[].path` — a field that does not exist in pi's
+  // current schema and never produced a probe hit in production.
+  // See change: fix-electron-cold-launch-probe-cascade (Bug A).
+  let resolved: ResolvedPiPackage[];
+  try {
+    resolved = probes.listPiPackages();
+  } catch {
+    return null;
+  }
+  if (resolved.length === 0) return null;
 
-  for (const ext of settings.extensions) {
-    if (!ext.path) continue;
-    const extDir = path.dirname(ext.path);
-
-    // Check that this extension directory contains bridge.ts.
+  for (const pkg of resolved) {
+    const extDir = pkg.packageDir;
     const bridgeTs = path.join(extDir, "bridge.ts");
     const srcBridgeTs = path.join(extDir, "src", "bridge.ts");
     if (!probes.existsSync(bridgeTs) && !probes.existsSync(srcBridgeTs)) continue;
 
-    // Try to resolve the server package from this extension's directory.
     let serverPkgPath: string;
     try {
       serverPkgPath = probes.requireResolve(
@@ -258,17 +326,17 @@ async function probePiExtension(
       continue;
     }
 
-    // Version check.
     let serverVersion: string | undefined;
     try {
-      const pkg = JSON.parse(probes.readFileSync(serverPkgPath, "utf-8")) as { version?: string };
-      serverVersion = pkg.version;
+      const pkgJson = JSON.parse(
+        probes.readFileSync(serverPkgPath, "utf-8"),
+      ) as { version?: string };
+      serverVersion = pkgJson.version;
     } catch {
       continue;
     }
     if (!serverVersion || !versionGte(serverVersion, opts.bundledMinVersion)) continue;
 
-    // pi --version check.
     const piVersion = await probes.spawnVersion("pi", 3000);
     if (!piVersion || !versionGte(piVersion, opts.bundledMinVersion)) continue;
 
@@ -370,15 +438,33 @@ async function buildExtractedSource(
 
   // Check if extraction is needed and run it.
   const currentVersion = opts.bundledMinVersion;
-  const extractFs: import("./bundle-extract.js").ExtractFs = {
+  //
+  // Pass only the file-content probes (existsSync/readFileSync/writeFileSync/
+  // renameSync) that tests inject; let `buildFs` inside `extractBundle` fill
+  // in the destructive operations (mkdirSync/readdirSync/rmSync/statSync/
+  // cpSync) with real-fs defaults.
+  //
+  // Bug D fix (see change: fix-electron-cold-launch-probe-cascade): the
+  // previous shape passed no-op overrides for the destructive ops which
+  // silently broke `extractBundle`'s selective-wipe step. With wipe a
+  // no-op, stale absolute symlinks left under `~/.pi-dashboard/node_modules`
+  // by a previous partial extract were not deleted before `cpSync`. The
+  // bundle's relative `.bin/*` symlinks then ran through those stale
+  // pointers back into `<resourcesPath>/server/`, producing
+  // `ERR_FS_CP_EINVAL: cannot copy <bundle-path> to a subdirectory of
+  // self <same-bundle-path>`. The extracted source path then bailed with
+  // `didExtract:false`, `installStandalone` never ran, and the spawn
+  // step failed with `JitiNotFoundError`.
+  //
+  // Real readdirSync + rmSync now actually delete `node_modules/` (and any
+  // other non-SURVIVE entries) before `cpSync`, so the destination is
+  // clean. Self-healing for users whose managed dir is already corrupt
+  // — no local cleanup required.
+  const extractFs: Partial<import("./bundle-extract.js").ExtractFs> = {
     existsSync: probes.existsSync,
     readFileSync: probes.readFileSync,
     writeFileSync: probes.writeFileSync,
     renameSync: probes.renameSync,
-    mkdirSync: (p, o) => { /* no-op in probe — real fs used via extractBundle default */ },
-    readdirSync: () => [],
-    rmSync: () => {},
-    statSync: () => ({ isDirectory: () => false }),
   };
 
   const markerSaysExtract = needsExtraction(managedDir, currentVersion, extractFs);
@@ -394,7 +480,8 @@ async function buildExtractedSource(
         resolveJiti: (anchor) => new ToolResolver().resolveJiti({ anchor, anchorOnly: true }),
       });
   if (!markerSaysExtract && !healthy) {
-    console.warn(
+    logLaunchSource(
+      "warn",
       "[launch-source] extracted source unhealthy (jiti missing); forcing re-extract",
     );
   }
@@ -472,11 +559,9 @@ async function buildExtractedSource(
           fsMod.rmSync(lockPath, { force: true });
         }
       } catch (stripErr: any) {
-        // Non-fatal: if the operations fail, installStandalone may still
-        // succeed (it creates managedDir/package.json when missing).
-        console.error(
-          "[launch-source] could not normalize managedDir before install:",
-          stripErr?.message ?? String(stripErr),
+        logLaunchSource(
+          "error",
+          `[launch-source] could not normalize managedDir before install: ${stripErr?.message ?? String(stripErr)}`,
         );
       }
 
@@ -521,18 +606,18 @@ async function buildExtractedSource(
           stashed = true;
         }
       } catch (stashErr: any) {
-        console.error(
-          "[launch-source] could not stash bundle node_modules:",
-          stashErr?.message ?? String(stashErr),
+        logLaunchSource(
+          "error",
+          `[launch-source] could not stash bundle node_modules: ${stashErr?.message ?? String(stashErr)}`,
         );
       }
 
       try {
         await installStandalone();
       } catch (installErr: any) {
-        console.error(
-          "[launch-source] runtime baseline install failed:",
-          installErr?.message ?? String(installErr),
+        logLaunchSource(
+          "error",
+          `[launch-source] runtime baseline install failed: ${installErr?.message ?? String(installErr)}`,
         );
       }
 
@@ -545,24 +630,16 @@ async function buildExtractedSource(
           fsMod.cpSync(stashedNm, managedNm, { recursive: true });
           fsMod.rmSync(stashedNm, { recursive: true, force: true });
         } catch (mergeErr: any) {
-          console.error(
-            "[launch-source] could not merge bundle node_modules back:",
-            mergeErr?.message ?? String(mergeErr),
+          logLaunchSource(
+            "error",
+            `[launch-source] could not merge bundle node_modules back: ${mergeErr?.message ?? String(mergeErr)}`,
           );
         }
       }
     } catch (err: any) {
-      // Print code + path so the failing entry is identifiable. Earlier the
-      // log truncated to "ENOTDIR: not a directory, opendir" with no path,
-      // making it impossible to know which file under <resourcesPath>/server
-      // tripped the recursive cpSync. See change:
-      // simplify-electron-bootstrap-derived-state (Phase C bring-up).
-      console.error(
-        "[launch-source] bundle extraction failed:",
-        "code=" + (err?.code ?? "unknown"),
-        "syscall=" + (err?.syscall ?? "unknown"),
-        "path=" + (err?.path ?? "unknown"),
-        "message=" + (err?.message ?? String(err)),
+      logLaunchSource(
+        "error",
+        `[launch-source] bundle extraction failed: code=${err?.code ?? "unknown"} syscall=${err?.syscall ?? "unknown"} path=${err?.path ?? "unknown"} message=${err?.message ?? String(err)}`,
       );
       // Return source anyway — server may still start if a prior extraction exists.
       return { kind: "extracted", cliPath, cwd: managedDir, didExtract: false };
@@ -687,7 +764,8 @@ export async function spawnFromSource(
 
   if (pick.kind === "execpath-fallback") {
     env["ELECTRON_RUN_AS_NODE"] = "1";
-    console.warn(
+    logLaunchSource(
+      "warn",
       "[pick-node] No bundled or system Node found — falling back to process.execPath with " +
       "ELECTRON_RUN_AS_NODE=1. Server launch may behave unexpectedly. " +
       `execPath=${pick.nodeBin}`,

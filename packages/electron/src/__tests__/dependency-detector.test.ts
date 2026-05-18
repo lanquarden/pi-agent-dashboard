@@ -1,10 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockExecSync, mockExistsSync, mockReadFileSync, mockNpmRootGlobalOr } = vi.hoisted(() => ({
+const { mockExecSync, mockExistsSync, mockReadFileSync, mockNpmRootGlobalOr, mockResolve, mockHas, mockWhich } = vi.hoisted(() => ({
   mockExecSync: vi.fn(),
   mockExistsSync: vi.fn(),
   mockReadFileSync: vi.fn(),
   mockNpmRootGlobalOr: vi.fn(),
+  mockResolve: vi.fn(),
+  mockHas: vi.fn(),
+  mockWhich: vi.fn(),
 }));
 
 vi.mock("node:child_process", () => ({
@@ -20,67 +23,141 @@ vi.mock("node:fs", () => ({
   readFileSync: mockReadFileSync,
 }));
 
+// Tool-registry mock: detectPi / detectOpenSpec / detectSystemNode
+// now route through `getDefaultRegistry().resolve()`. Layered on top of
+// the existing execSync/fs mocks so the 21 previously-passing tests
+// stay green (their code paths don't touch the registry).
+vi.mock("@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js", () => ({
+  getDefaultRegistry: () => ({
+    has: mockHas,
+    resolve: mockResolve,
+  }),
+}));
+
+// Binary-lookup mock: ToolResolver.which() is used by detectDashboardPackage
+// for its npm-global fallback. Keep the REAL `isAppImageSelfHit` so the
+// detectPiDashboardCli AppImage tests below continue to exercise the real
+// guard logic.
+vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js", async () => {
+  const actual = await vi.importActual<typeof import("@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js")>(
+    "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js",
+  );
+  return {
+    ...actual,
+    ToolResolver: class {
+      which(name: string) { return mockWhich(name); }
+    },
+  };
+});
+
 import { detectPi, detectOpenSpec, detectSystemNode, detectDashboardPackage, detectBridgeExtension, detectPiDashboardCli } from "../lib/dependency-detector.js";
 
 describe("dependency-detector", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mockExistsSync.mockReturnValue(false);
+    // Fail-closed defaults for the new registry + binary-lookup mocks.
+    // Tests opt in by calling .mockReturnValue / .mockImplementation locally.
+    mockHas.mockReturnValue(false);
+    mockResolve.mockImplementation(() => ({
+      name: "unknown",
+      ok: false,
+      path: null,
+      source: null,
+      tried: [],
+      resolvedAt: Date.now(),
+    }));
+    mockWhich.mockReturnValue(null);
   });
 
   describe("detectPi", () => {
     it("finds pi on system PATH", () => {
-      mockExecSync.mockReturnValue("/usr/local/bin/pi\n");
+      mockHas.mockReturnValue(true);
+      mockResolve.mockReturnValue({
+        name: "pi",
+        ok: true,
+        path: "/usr/local/bin/pi",
+        source: "system",
+        tried: [],
+        resolvedAt: Date.now(),
+      });
       const result = detectPi();
-      expect(result).toEqual({ found: true, path: "/usr/local/bin/pi", source: "system" });
+      // .toMatchObject so the new `resolution` field does not break the assertion.
+      expect(result).toMatchObject({ found: true, path: "/usr/local/bin/pi", source: "system" });
     });
 
     it("finds pi via login shell when not on process PATH", () => {
-      let callCount = 0;
-      mockExecSync.mockImplementation(() => {
-        callCount++;
-        // First call (which pi) fails, second call (login shell) succeeds
-        if (callCount === 1) throw new Error("not found");
-        return "/Users/test/.nvm/versions/node/v22.0.0/bin/pi\n";
+      mockHas.mockReturnValue(true);
+      mockResolve.mockReturnValue({
+        name: "pi",
+        ok: true,
+        path: "/Users/test/.nvm/versions/node/v22.0.0/bin/pi",
+        source: "system",
+        tried: [],
+        resolvedAt: Date.now(),
       });
       const result = detectPi();
-      expect(result).toEqual({ found: true, path: "/Users/test/.nvm/versions/node/v22.0.0/bin/pi", source: "system" });
+      expect(result).toMatchObject({ found: true, path: "/Users/test/.nvm/versions/node/v22.0.0/bin/pi", source: "system" });
     });
 
     it("finds pi in managed install when not on PATH", () => {
-      mockExecSync.mockImplementation(() => { throw new Error("not found"); });
-      mockExistsSync.mockReturnValue(true);
+      mockHas.mockReturnValue(true);
+      mockResolve.mockReturnValue({
+        name: "pi",
+        ok: true,
+        path: "/Users/test/.pi-dashboard/node_modules/.bin/pi",
+        source: "managed",
+        tried: [],
+        resolvedAt: Date.now(),
+      });
       const result = detectPi();
       expect(result.found).toBe(true);
       expect(result.source).toBe("managed");
     });
 
     it("returns not found when pi is nowhere", () => {
-      mockExecSync.mockImplementation(() => { throw new Error("not found"); });
+      // beforeEach defaults: mockHas=false, mockResolve=ok:false.
+      // Production detect() returns {found:false} short-circuit when has() returns false.
       const result = detectPi();
-      expect(result).toEqual({ found: false });
+      expect(result).toMatchObject({ found: false });
     });
   });
 
   describe("detectSystemNode", () => {
     it("finds node with sufficient version", () => {
-      mockExecSync.mockImplementation((cmd: string) => {
-        if (String(cmd).includes("which") || String(cmd).includes("where")) return "/usr/local/bin/node\n";
-        if (String(cmd).includes("--version")) return "v22.11.0\n";
-        throw new Error("unexpected");
+      mockHas.mockReturnValue(true);
+      mockResolve.mockReturnValue({
+        name: "node",
+        ok: true,
+        path: "/usr/local/bin/node",
+        source: "system",
+        tried: [],
+        resolvedAt: Date.now(),
       });
+      // detectSystemNode then calls execSync("<path> --version") via platform/exec
+      // (chained through node:child_process which IS mocked).
+      // v22.18.0 is outside the nodejs/node#58515 affected range.
+      mockExecSync.mockReturnValue("v22.18.0\n");
       const result = detectSystemNode();
-      expect(result).toEqual({ found: true, path: "/usr/local/bin/node", source: "system" });
+      expect(result).toMatchObject({ found: true, path: "/usr/local/bin/node", source: "system" });
     });
 
     it("rejects node with version too low", () => {
-      mockExecSync.mockImplementation((cmd: string) => {
-        if (String(cmd).includes("which") || String(cmd).includes("where")) return "/usr/local/bin/node\n";
-        if (String(cmd).includes("--version")) return "v18.0.0\n";
-        throw new Error("unexpected");
+      mockHas.mockReturnValue(true);
+      mockResolve.mockReturnValue({
+        name: "node",
+        ok: true,
+        path: "/usr/local/bin/node",
+        source: "system",
+        tried: [],
+        resolvedAt: Date.now(),
       });
+      // Version is below 20.6 so detectSystemNode rejects and falls through
+      // to scanForUsableNodeOnDisk. mockExistsSync is false by default so
+      // the on-disk scan finds no candidates → returns {found:false}.
+      mockExecSync.mockReturnValue("v18.0.0\n");
       const result = detectSystemNode();
-      expect(result).toEqual({ found: false });
+      expect(result).toMatchObject({ found: false });
     });
   });
 
@@ -144,6 +221,11 @@ describe("dependency-detector", () => {
       mockReadFileSync.mockReturnValue(JSON.stringify({ packages: ["npm:other-pkg"] }));
       mockNpmRootGlobalOr.mockReturnValue("/usr/lib/node_modules");
       mockExecSync.mockImplementation(() => { throw new Error("not found"); });
+      // detectDashboardPackage's npm-global fallback uses resolver.which("npm");
+      // path.dirname(path.dirname(...)) derives the global node_modules root.
+      mockWhich.mockImplementation((name: string) =>
+        name === "npm" ? "/usr/lib/node_modules/npm/bin/npm" : null,
+      );
       const result = detectBridgeExtension();
       expect(result.found).toBe(true);
       expect(result.source).toBe("system");

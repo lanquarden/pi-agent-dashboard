@@ -10,6 +10,7 @@ import { ConnectionManager } from "./connection.js";
 import { detectSessionSource } from "./source-detector.js";
 import { mapEventToProtocol } from "./event-forwarder.js";
 import { createCommandHandler } from "./command-handler.js";
+import { shouldApplyDefaultModel } from "./bridge-default-model-gate.js";
 import { RetryTracker } from "./retry-tracker.js";
 import { UsageLimitOrderer } from "./usage-limit-orderer.js";
 import fs from "node:fs";
@@ -1461,8 +1462,18 @@ function initBridge(pi: ExtensionAPI) {
       } catch { /* modelRegistry not available */ }
     }
 
-    // Apply default model on new sessions only (not reload/resume/fork)
-    if (_event?.reason === "startup" && cachedModelRegistry) {
+    // Apply default model only on brand-new sessions (no prior entries on disk).
+    // Resume (--session) and fork (--fork) both load parent entries, so entryCount > 0
+    // and we keep their existing model. Mirrors pi's own !hasExistingSession gate.
+    // See change: fix-resume-keeps-session-model.
+    const entryCount = ctx.sessionManager.getEntries?.()?.length ?? 0;
+    const freshConfig = loadConfig();
+    if (shouldApplyDefaultModel({
+      reason: _event?.reason,
+      entryCount,
+      hasModelRegistry: Boolean(cachedModelRegistry),
+      hasDefaultModel: Boolean(freshConfig.defaultModel),
+    })) {
       pendingDefaultModel = applyDefaultModel();
     }
 

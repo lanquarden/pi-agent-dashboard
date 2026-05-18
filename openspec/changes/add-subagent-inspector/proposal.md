@@ -36,6 +36,10 @@ This change is **committed but unfinished**. Specifically:
   - The `/session/:sid/subagent/:aid` route is not registered. Popout buttons will fail to open.
   - The `toolContext` passed to ChatView does not include `sessionId`, so the popout URL cannot be built. Buttons render as disabled.
   - This wiring was done in an earlier draft but was lost in a working-copy reset. Needs to be re-added before this change can ship.
+- ⚠️ **Reducer backfill from `tool_execution_end` — NOT YET DONE.**
+  - `state.subagents.get(agentId)` is the canonical source for both inline-expand and popout. The only writers today are the live `subagent_*` event handlers. `state-replay.ts` does NOT synthesize those events, so after `/resume` or a page refresh, every completed subagent’s map entry is missing — the popout renders "Subagent not found" even though the full `AgentDetails` is sitting in the parent’s JSONL inside `ToolResultMessage.details`.
+  - Fix: the reducer’s `tool_execution_end` handler also writes to `next.subagents` when `toolName === "Agent"` and `data.details?.agentId` is present. See `tasks.md` §12 for tasks and `design.md` Decision 7 for rationale + considered alternatives.
+  - Mid-flight survival (refresh while a subagent is still running, before the parent has persisted the tool result) is explicitly OUT OF SCOPE here — see Open Questions in `design.md`.
 - ❌ Background-subagents pill & panel — DROPPED (was originally in scope, now removed; producer extension is foreground-only).
 
 ## What Changes (compared to before this change)
@@ -54,7 +58,7 @@ This change is **committed but unfinished**. Specifically:
 - **MODIFY** `packages/client/src/components/tool-renderers/AgentToolRenderer.tsx` — expand toggle + popout button; imports `SubagentDetailView` from the plugin.
 - **MODIFY** `packages/client/src/components/tool-renderers/GetSubagentResultRenderer.tsx` — adds "Show details" affordance opening the popout route.
 - **MODIFY** `packages/client/src/components/tool-renderers/types.ts` — `ToolContext` gains optional `sessionId?: string` and `session?: SessionState`.
-- **MODIFY** `packages/client/src/lib/event-reducer.ts` — `SubagentState` / `SubagentTimelineEntry` types now re-exported from the plugin (single canonical location); `readSubagentDetails(details)` helper kept in shell for now; reducer handlers for `subagent_*` events read `data.details` via the helper.
+- **MODIFY** `packages/client/src/lib/event-reducer.ts` — `SubagentState` / `SubagentTimelineEntry` types now re-exported from the plugin (single canonical location); `readSubagentDetails(details)` helper kept in shell for now; reducer handlers for `subagent_*` events read `data.details` via the helper. **PENDING:** the existing `tool_execution_end` handler also writes to `next.subagents` when the event refers to a completed Agent run (`toolName === "Agent"` AND `data.details?.agentId` present), using `readSubagentDetails` plus merge-on-prior-non-undefined semantics. This is what makes `/resume` and page refresh correctly re-hydrate the inspector for completed subagents — the producer already persists the full `AgentDetails` inside the parent’s `ToolResultMessage.details`, and `state-replay.ts` already threads `msg.details` through synthesized `tool_execution_end` events; this requirement closes the loop on the consumer side.
 - **MODIFY** `packages/client/package.json` — adds workspace dep on `@blackbelt-technology/pi-dashboard-subagents-plugin`.
 - **MODIFY** `packages/client/src/components/__tests__/AgentToolRenderer.test.tsx` — wraps in `withUiPrimitiveProvider` because the imported `SubagentDetailView` uses the primitives registry.
 - **PENDING** `packages/client/src/App.tsx` — register route, mount `<SubagentPopoutPage>`, pass `sessionId` + `session` through `toolContext`. Subscribe to parent session when popout loaded in a fresh tab.

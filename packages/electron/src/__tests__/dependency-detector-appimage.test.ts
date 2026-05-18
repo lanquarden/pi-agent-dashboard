@@ -9,10 +9,25 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockResolve, mockHas, mockExecSync } = vi.hoisted(() => ({
+const { mockResolve, mockHas, mockExecSync, mockExecFileSync, mockExistsSync, mockReaddirSync } = vi.hoisted(() => ({
   mockResolve: vi.fn(),
   mockHas: vi.fn(),
   mockExecSync: vi.fn(),
+  mockExecFileSync: vi.fn(),
+  mockExistsSync: vi.fn(),
+  mockReaddirSync: vi.fn(),
+}));
+
+vi.mock("node:child_process", () => ({
+  execFileSync: mockExecFileSync,
+}));
+
+// node:fs is mocked so scanForUsableNodeOnDisk fallback cannot find
+// real-host node binaries (~/.nvm, /usr/bin/node etc.) when the AppImage
+// guard rejects the registry hit.
+vi.mock("node:fs", () => ({
+  existsSync: mockExistsSync,
+  readdirSync: mockReaddirSync,
 }));
 
 vi.mock("@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js", () => ({
@@ -91,7 +106,16 @@ describe("detectSystemNode AppImage symmetry guard", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mockHas.mockReturnValue(true);
-    mockExecSync.mockReturnValue("v22.11.0\n");
+    // v22.18.0 is outside the nodejs/node#58515 affected range (v22.0–22.17).
+    // Both the registry-result version check (execSync) and the
+    // scanForUsableNodeOnDisk fallback (execFileSync) receive a passing version
+    // so the resolver chain is deterministic.
+    mockExecSync.mockReturnValue("v22.18.0\n");
+    mockExecFileSync.mockReturnValue("v22.18.0\n");
+    // Fail-closed defaults for the fs probes used by
+    // scanForUsableNodeOnDisk: no candidate exists on disk.
+    mockExistsSync.mockReturnValue(false);
+    mockReaddirSync.mockReturnValue([]);
   });
 
   it("rejects an APPDIR-mount node candidate", () => {
@@ -106,7 +130,9 @@ describe("detectSystemNode AppImage symmetry guard", () => {
       }));
 
       const result = detectSystemNode();
-      expect(result).toEqual({ found: false });
+      // .toMatchObject so the new `resolution` field (added by
+      // consolidate-tool-resolution) does not break the assertion.
+      expect(result).toMatchObject({ found: false });
     } finally {
       if (savedAppDir === undefined) delete process.env.APPDIR;
       else process.env.APPDIR = savedAppDir;

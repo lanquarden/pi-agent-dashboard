@@ -42,6 +42,11 @@ function makeProbes(overrides: Partial<LaunchSourceProbes> = {}): Partial<Launch
     requireResolve: vi.fn().mockImplementation(() => {
       throw new Error("Cannot resolve");
     }),
+    // Default: no pi packages registered — piExtension probe returns null.
+    // Tests that exercise piExtension override this with a stub returning
+    // fake ResolvedPiPackage entries (the new packages[]-based schema).
+    // See change: fix-electron-cold-launch-probe-cascade (Bug A).
+    listPiPackages: vi.fn().mockReturnValue([]),
     ...overrides,
   };
 }
@@ -91,32 +96,89 @@ it("2. returns devMonorepo when not packaged and both files exist", async () => 
 
 // ── 3. piExtension ────────────────────────────────────────────────────────────
 
-it("3. returns piExtension when settings.json has a valid bridge entry with resolvable server", async () => {
-  const settings = JSON.stringify({
-    extensions: [
-      { path: "/home/user/.pi/extensions/pi-agent-dashboard/src/bridge.ts" },
-    ],
-  });
+it("3. returns piExtension when settings.packages[] has an entry with bridge.ts and resolvable server", async () => {
   const serverPkg = JSON.stringify({ version: "1.0.0" });
-
   const probes = makeProbes({
+    listPiPackages: vi.fn().mockReturnValue([
+      {
+        packageDir: "/home/user/.pi/agent/npm/node_modules/pi-agent-dashboard",
+        entryPath: null,
+        scope: "user",
+        source: "npm:pi-agent-dashboard",
+        packageJsonName: "pi-agent-dashboard",
+      },
+    ]),
     readFileSync: vi.fn().mockImplementation((p: string) => {
-      if (p.includes("settings.json")) return settings;
       if (p.includes("pi-dashboard-server") && p.endsWith("package.json")) return serverPkg;
       throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
     }),
-    existsSync: vi.fn().mockImplementation((p: string) => {
-      return p.includes("bridge.ts");
-    }),
+    existsSync: vi.fn().mockImplementation((p: string) => p.includes("bridge.ts")),
     requireResolve: vi.fn().mockReturnValue(
-      "/home/user/.pi/extensions/node_modules/@blackbelt-technology/pi-dashboard-server/package.json",
+      "/home/user/.pi/agent/npm/node_modules/@blackbelt-technology/pi-dashboard-server/package.json",
     ),
     spawnVersion: vi.fn().mockResolvedValue("1.0.0"),
   });
-
   const result = await selectLaunchSource(baseOpts({ probes }));
   expect(result.kind).toBe("piExtension");
   expect((result as any).cliPath).toContain("cli.ts");
+});
+
+it("3a. piExtension probe ignores legacy settings.extensions field (Bug A regression guard)", async () => {
+  const probes = makeProbes({
+    listPiPackages: vi.fn().mockReturnValue([]),
+    existsSync: vi.fn().mockReturnValue(true),
+  });
+  const result = await selectLaunchSource(baseOpts({ probes }));
+  expect(result.kind).toBe("extracted");
+});
+
+it("3b. piExtension skips packages without bridge.ts", async () => {
+  const probes = makeProbes({
+    listPiPackages: vi.fn().mockReturnValue([
+      {
+        packageDir: "/home/user/.pi/agent/npm/node_modules/pi-agent-browser",
+        entryPath: null,
+        scope: "user",
+        source: "npm:pi-agent-browser",
+        packageJsonName: "pi-agent-browser",
+      },
+    ]),
+    existsSync: vi.fn().mockReturnValue(false),
+  });
+  const result = await selectLaunchSource(baseOpts({ probes }));
+  expect(result.kind).toBe("extracted");
+});
+
+it("3c. piExtension iterates multiple packages, first valid match wins", async () => {
+  const serverPkg = JSON.stringify({ version: "1.0.0" });
+  const probes = makeProbes({
+    listPiPackages: vi.fn().mockReturnValue([
+      {
+        packageDir: "/home/user/.pi/agent/npm/node_modules/pi-agent-browser",
+        entryPath: null, scope: "user",
+        source: "npm:pi-agent-browser", packageJsonName: "pi-agent-browser",
+      },
+      {
+        packageDir: "/home/user/.pi/agent/npm/node_modules/pi-agent-dashboard",
+        entryPath: null, scope: "user",
+        source: "npm:pi-agent-dashboard", packageJsonName: "pi-agent-dashboard",
+      },
+    ]),
+    existsSync: vi.fn().mockImplementation((p: string) =>
+      p.includes("pi-agent-dashboard") && p.includes("bridge.ts"),
+    ),
+    readFileSync: vi.fn().mockImplementation((p: string) => {
+      if (p.includes("pi-dashboard-server") && p.endsWith("package.json")) return serverPkg;
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    }),
+    requireResolve: vi.fn().mockReturnValue(
+      "/home/user/.pi/agent/npm/node_modules/@blackbelt-technology/pi-dashboard-server/package.json",
+    ),
+    spawnVersion: vi.fn().mockResolvedValue("1.0.0"),
+  });
+  const result = await selectLaunchSource(baseOpts({ probes }));
+  expect(result.kind).toBe("piExtension");
+  expect((result as any).cwd).toContain("pi-agent-dashboard");
 });
 
 // ── 4. npmGlobal ──────────────────────────────────────────────────────────────
@@ -188,22 +250,22 @@ it("8. walks full chain to extracted when all real probes fail", async () => {
 // ── 9. version gate ───────────────────────────────────────────────────────────
 
 it("9. version gate: piExtension skipped when server version below bundledMinVersion", async () => {
-  const settings = JSON.stringify({
-    extensions: [
-      { path: "/home/user/.pi/extensions/pi-agent-dashboard/src/bridge.ts" },
-    ],
-  });
   const serverPkg = JSON.stringify({ version: "0.0.1" }); // below "1.0.0"
-
   const probes = makeProbes({
+    listPiPackages: vi.fn().mockReturnValue([
+      {
+        packageDir: "/home/user/.pi/agent/npm/node_modules/pi-agent-dashboard",
+        entryPath: null, scope: "user",
+        source: "npm:pi-agent-dashboard", packageJsonName: "pi-agent-dashboard",
+      },
+    ]),
     readFileSync: vi.fn().mockImplementation((p: string) => {
-      if (p.includes("settings.json")) return settings;
       if (p.includes("pi-dashboard-server") && p.endsWith("package.json")) return serverPkg;
       throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
     }),
     existsSync: vi.fn().mockImplementation((p: string) => p.includes("bridge.ts")),
     requireResolve: vi.fn().mockReturnValue(
-      "/home/user/.pi/extensions/node_modules/@blackbelt-technology/pi-dashboard-server/package.json",
+      "/home/user/.pi/agent/npm/node_modules/@blackbelt-technology/pi-dashboard-server/package.json",
     ),
     spawnVersion: vi.fn().mockResolvedValue("0.0.1"),
   });

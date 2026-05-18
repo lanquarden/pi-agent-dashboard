@@ -15,13 +15,39 @@
  * See change: replace-tsx-with-jiti.
  */
 import { createRequire } from "node:module";
-import { realpathSync } from "node:fs";
+import { realpathSync, readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cliPath = resolve(here, "..", "src", "cli.ts");
+
+// Metadata short-circuit: --version / -v / version SHALL NOT require jiti.
+// See change: fix-electron-cold-launch-probe-cascade (Bug B).
+//
+// Why: every metadata-only consumer (npmGlobal probe, doctor, the user
+// asking "what's installed") was previously blocked when the wrapper
+// couldn't resolve jiti — even when the install was perfectly capable
+// of answering the query from its sibling package.json. Reading the
+// version is a pure metadata operation; gating it on a TS loader was
+// over-aggressive.
+//
+// Falls through (no exit) on read/parse error so the legacy install
+// hint still surfaces for genuinely corrupt installs.
+const metaArg = process.argv[2];
+if (metaArg === "--version" || metaArg === "-v" || metaArg === "version") {
+  try {
+    const pkgPath = resolve(here, "..", "package.json");
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    if (pkg && typeof pkg.version === "string" && pkg.version.length > 0) {
+      process.stdout.write(pkg.version + "\n");
+      process.exit(0);
+    }
+  } catch {
+    /* fall through to jiti-resolve path so the legacy error still fires */
+  }
+}
 
 // Mirrors packages/shared/src/resolve-jiti.ts JITI_PACKAGES.
 const JITI_PACKAGES = ["jiti", "@mariozechner/jiti"];

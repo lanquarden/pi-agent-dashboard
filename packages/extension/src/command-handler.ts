@@ -343,7 +343,10 @@ export function createCommandHandler(
                 // sendUserMessage exempt from gating: only typed single-line
                 // slashes that are NOT extension commands reach this — i.e.
                 // skills, prompt templates, unrecognized slashes.
-                pi.sendUserMessage(parsed.text);
+                // Forward delivery so steering on slash fallback honors the
+                // dashboard's keyboard contract. See change: add-steering-message.
+                const deliverAs = msg.delivery ?? ("followUp" as const);
+                (pi.sendUserMessage as any)(parsed.text, { deliverAs });
               }
             }
             return undefined;
