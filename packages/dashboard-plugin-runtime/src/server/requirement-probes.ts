@@ -110,7 +110,7 @@ export async function probeService(
   if (!fn) {
     return { name, satisfied: false, error: "unknown service name" };
   }
-  return fn(deps);
+  return { name, ...(await fn(deps)) };
 }
 
 export async function runRequirementProbes(

@@ -12,6 +12,7 @@
  */
 import { describe, it, expect } from "vitest";
 import fs from "node:fs/promises";
+import { Dirent } from "node:fs";
 import path from "node:path";
 import url from "node:url";
 
@@ -24,7 +25,7 @@ const EXECPATH_ALLOWLIST = new Set(["pick-node.ts"]);
 
 /** Walk .ts/.tsx files, excluding node_modules, dist, and __tests__. */
 async function* walk(dir: string): AsyncGenerator<string> {
-  let entries: Awaited<ReturnType<typeof fs.readdir>>;
+  let entries: Dirent[];
   try {
     entries = await fs.readdir(dir, { withFileTypes: true });
   } catch {

@@ -58,7 +58,7 @@ describe("event-wiring: pending-resume clears old session resuming flag", () => 
 
     // 1. Seed the old session as ended with resuming:true.
     //    register() sets status:"active", so follow up with update() to ended+resuming.
-    sessionManager.register({ id: OLD_SESSION, cwd: CWD, sessionFile, source: "cli" });
+    sessionManager.register({ id: OLD_SESSION, cwd: CWD, sessionFile, source: "terminal" });
     sessionManager.update(OLD_SESSION, { status: "ended", resuming: true });
     expect(sessionManager.get(OLD_SESSION)?.resuming).toBe(true);
 

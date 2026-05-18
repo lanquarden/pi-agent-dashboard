@@ -1029,6 +1029,7 @@ describe("pendingPrompt", () => {
     state = reduceEvent(state, {
       eventType: "agent_start",
       timestamp: Date.now(),
+      data: {},
     });
     expect(state.pendingPrompt).toBeUndefined();
   });
