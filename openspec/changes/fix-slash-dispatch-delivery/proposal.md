@@ -4,13 +4,13 @@ Two issues with the dashboard bridge's extension slash-command dispatch path:
 
 **Issue 1 — dispatch hardcodes `streamingBehavior: "followUp"`.** When a dashboard user sends a steering message (Enter key during streaming), the bridge should route extension commands with `streamingBehavior: "steer"` so pi delivers them after the current turn's tool calls rather than queuing as followUp. But `tryDispatchExtensionCommand` hardcodes `"followUp"` and has no `delivery` parameter.
 
-**Issue 2 — stopgap fires when `dispatchCommand` is not available.** Users on pi 0.74.1 see the stopgap error "requires pi 0.71+ (pi.dispatchCommand). Invoke from the pi TUI" when typing extension slash commands from the dashboard. The root cause: `dispatchCommand` **was never added to pi's ExtensionAPI** — it was a planned future API that did not ship. The bridge's Path D stopgap intercepts the slash command and shows an error, preventing pi from handling it natively. Pi 0.74+ already handles extension commands internally via its `prompt()` method (called by `sendUserMessage`), so the bridge should let those commands fall through to pi's native dispatch.
+**Issue 2 — Path D stopgap emits misleading pi-version error.** Users on pi 0.74.1 see the stopgap error "requires pi 0.71+ (pi.dispatchCommand). Invoke from the pi TUI" when typing extension slash commands from the dashboard. Two problems: (1) `dispatchCommand` was never added to pi's ExtensionAPI and pi 0.71 does not exist — the error references a fictional feature. (2) `pi.sendUserMessage()` hardcodes `expandPromptTemplates: false`, which skips pi's `_tryExecuteExtensionCommand` — so removing the stopgap entirely and falling through to `sendUserMessage` does NOT dispatch extension commands; they become regular LLM messages. Path D is replaced with an honest error: the command cannot be dispatched for non-headless sessions; headless sessions need `useRpcKeeper: true` in dashboard config.
 
 **Issue 3 — global prompt templates not resolved by `expandPromptTemplateFromDisk`.** Users with prompt templates installed at `~/.pi/agent/prompts/` (e.g. `/session-summary`) cannot invoke them from the dashboard because `resolveTemplate`'s `pi.getCommands()` fallback only queries for `source: "skill"`, so prompt templates registered via pi's prompt-template system (`source: "prompt"`) are not found. `pi.getCommands()` already returns every prompt template with its absolute path — the lookup just needs to also check for `source: "prompt"`.
 
 ## What Changes
 
-- **MODIFIED**: `packages/extension/src/slash-dispatch.ts` — `tryDispatchExtensionCommand` gains optional `delivery?: "steer" | "followUp"` parameter, used for `streamingBehavior` on the `dispatchCommand` call (Path B). Path D (stopgap) removed — instead returns `false` so the caller falls through to `pi.sendUserMessage`, where pi 0.74+ handles extension commands internally. Console warning added when `dispatchCommand` is unavailable (Path D).
+- **MODIFIED**: `packages/extension/src/slash-dispatch.ts` — `tryDispatchExtensionCommand` gains optional `delivery?: "steer" | "followUp"` parameter, used for `streamingBehavior` on the `dispatchCommand` call (Path B). Path D replaced: instead of the misleading "pi 0.71+" stopgap, emits `command_feedback {status: "error"}` with an actionable hint to enable `useRpcKeeper: true` for headless sessions, and returns `true`. No fallthrough to `sendUserMessage` (which cannot dispatch extension commands — `expandPromptTemplates: false` skips `_tryExecuteExtensionCommand`).
 - **MODIFIED**: `packages/extension/src/bridge.ts` — `sessionPrompt` callback gains `delivery` parameter, passed through to `tryDispatchExtensionCommand` and used as `deliverAs` on the `sendUserMessage` fallback.
 - **MODIFIED**: `packages/extension/src/command-handler.ts` — `sessionPrompt` callback type updated to include `delivery` parameter. `msg.delivery` passed to `tryDispatchExtensionCommand` at the non-bridge call site (slash else-arm) for correct `streamingBehavior` propagation.
 - **MODIFIED**: `packages/shared/src/protocol.ts` — `SendPromptToExtensionMessage` gains optional `delivery?: "steer" | "followUp"` field.
@@ -21,7 +21,7 @@ Two issues with the dashboard bridge's extension slash-command dispatch path:
 
 ### Modified Capabilities
 
-- `extension-slash-command-dispatch`: Path D stopgap removed. Non-headless extension commands now fall through to `pi.sendUserMessage` where pi's native `_tryExecuteExtensionCommand` dispatches them. No more false stopgap error.
+- `extension-slash-command-dispatch`: Path D stopgap replaced. Instead of the misleading "requires pi 0.71+" error, non-headless extension commands now get an actionable error message directing users to enable `useRpcKeeper: true` in dashboard config for headless sessions (which support extension command dispatch via the RPC keeper).
 
 ## Impact
 
@@ -35,7 +35,7 @@ Two issues with the dashboard bridge's extension slash-command dispatch path:
 - **MODIFIED files** (tests):
   - `packages/extension/src/__tests__/bridge-slash-command-routing.test.ts` — delivery tests, Path D behavior update
   - `packages/extension/src/__tests__/command-handler.test.ts` — delivery propagation test
-- **Backward compatibility**: Extension commands from the dashboard that previously got a stopgap error now work (pi dispatches internally). The `delivery` field on `SendPromptToExtensionMessage` is optional; clients that don't send it get `"followUp"` behavior (unchanged). Global prompt templates (e.g. `/session-summary`) now resolve and expand correctly when invoked from the dashboard. Non-extension slash commands without matching templates remain unaffected (passed to LLM as raw text).
+- **Backward compatibility**: Extension commands from the dashboard that previously got the misleading "pi 0.71+" stopgap error now get an accurate, actionable error explaining that extension command dispatch requires headless mode with `useRpcKeeper: true`. The `delivery` field on `SendPromptToExtensionMessage` is optional; clients that don't send it get `"followUp"` behavior (unchanged). Global prompt templates (e.g. `/session-summary`) now resolve and expand correctly when invoked from the dashboard. Non-extension slash commands without matching templates remain unaffected (passed to LLM as raw text).
 
 ## Depends On
 

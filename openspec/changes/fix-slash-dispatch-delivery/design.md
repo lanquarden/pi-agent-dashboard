@@ -3,8 +3,8 @@
 The dashboard bridge's slash-command dispatch path (`slash-dispatch.ts`) routes extension commands through three paths:
 
 - **Path B**: `pi.dispatchCommand(text, { streamingBehavior })` — planned pi 0.71+ API. Never shipped.
-- **Path C**: server-routed dispatch via RPC keeper UDS — headless sessions only.
-- **Path D** (stopgap): emits error telling user to use pi TUI — fires when neither B nor C is available.
+- **Path C**: server-routed dispatch via `dispatch_extension_command` WS message — headless RPC sessions only. Fires when `connection` is present AND `isHeadlessRpcSession()` is true.
+- **Path D**: error feedback — fires when neither B nor C is available (non-headless or no connection). Emits `command_feedback {status: "error"}` with a hint to enable `useRpcKeeper: true` for headless sessions. Returns `true` — the caller does NOT fall through to `sendUserMessage`.
 
 The `sessionPrompt` callback in `bridge.ts` receives a `delivery` parameter (from `add-steering-message`) but `tryDispatchExtensionCommand` does not accept or use it.
 
@@ -24,17 +24,15 @@ The `sessionPrompt` callback in `bridge.ts` receives a `delivery` parameter (fro
 
 ## Decisions
 
-### Decision 1: Path D returns `false` instead of emitting stopgap error
+### Decision 1: Path D emits error with rpc-keeper hint (was misleading stopgap, then silent fallthrough attempt)
 
-**Problem**: `dispatchCommand` was a planned pi API for 0.71+ that never shipped. The bridge's Path D stopgap intercepts extension slash commands and shows an error, preventing pi from handling them natively.
+**Problem**: The original Path D stopgap told users "requires pi 0.71+ (pi.dispatchCommand)" — but `dispatchCommand` was never added to pi's ExtensionAPI and pi 0.71 does not exist. An attempted fix made Path D return `false` to fall through to `sendUserMessage`, but pi's `sendUserMessage()` hardcodes `expandPromptTemplates: false`, which skips `_tryExecuteExtensionCommand` — so extension commands sent via `sendUserMessage` become regular LLM messages instead of being dispatched.
 
-**Investigation**: Pi 0.74's `prompt()` method (what `sendUserMessage` calls) already handles extension commands internally via `_tryExecuteExtensionCommand()` — it checks if the text is a registered command and executes the handler directly, without involving the LLM. The bridge's interception prevents this native dispatch from running.
+**Root cause**: Two independent facts: (1) `dispatchCommand` never shipped, making the original stopgap reference a fictional feature. (2) `sendUserMessage` cannot dispatch extension commands due to the `expandPromptTemplates: false` hardcode in pi core. The RPC keeper path (Path C) is the only channel that can dispatch extension commands from the dashboard.
 
-**Decision**: Change Path D to return `false` (instead of `true` with stopgap error). This lets the caller's `sendUserMessage` path run, where pi dispatches the extension command natively. No `command_feedback` events are emitted from the bridge for this path — pi handles execution silently.
+**Decision**: Path D emits `command_feedback {status: "error"}` with an actionable message directing users to enable `useRpcKeeper: true` for headless sessions, and returns `true`. Path C remains gated by `isHeadlessRpcSession()` — it only works for headless sessions with a keeper sidecar. Tmux/wt sessions have no keeper and thus no dispatch channel; the error message acknowledges this.
 
-**Trade-off**: Dashboard users no longer see a `command_feedback {started/completed}` acknowledgment for extension commands dispatched via the pi-native path. The command executes but the UI doesn't confirm it. Acceptable because the previous behavior was a hard error — this is strictly better. Future work can add feedback by wrapping the `sendUserMessage` call.
-
-**Alternative considered**: Emit `command_feedback {started}` before calling `sendUserMessage` and `{completed}` after. Rejected because `sendUserMessage` is async and the command handler runs inside pi's prompt preflight — we'd emit `completed` before the handler actually finishes, misleading the user. Proper feedback requires pi's `prompt()` to return the command execution result, which is not part of the current API.
+**Trade-off**: Non-headless (tmux/wt) sessions get an honest error instead of the previous misleading "pi 0.71+" message or the attempted silent fallthrough (which would silently deliver the command to the LLM). This is strictly better — the error is accurate and actionable (enable headless + keeper config). True tmux dispatch requires a future server-side injection mechanism (e.g. `tmux send-keys`).
 
 ### Decision 2: `delivery` parameter defaults to `"followUp"`
 
@@ -68,8 +66,8 @@ Path B's `started` feedback emission was moved inside the `hasDispatchCommand` g
 7. /model <p/m>  → setModel()
 8. user-defined flow name → pi.events.emit("flow:run")
 9. extension command + dispatchCommand → pi.dispatchCommand(text, { streamingBehavior }) [Path B — dead code]
-9b. extension command + headless RPC → dispatch_extension_command WS message [Path C]
-9c. extension command + non-headless → return false, caller falls through to sendUserMessage, pi dispatches natively [Path D — changed]
+9b. extension command + connection + headless → dispatch_extension_command WS message [Path C — headless RPC only]
+9c. extension command + non-headless or no connection → command_feedback {error} with rpc-keeper hint [Path D — error feedback]
 10. template expansion + sendUserMessage (with deliverAs from delivery param)
 11. passthrough text → sendUserMessage
 ```
