@@ -1,0 +1,66 @@
+{
+  "name": "@blackbelt-technology/voice-input-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Voice input plugin for pi-dashboard — push-to-talk speech-to-text via parakeet.js (client) or Parakeet ONNX via onnxruntime-node (server).",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/client.tsx",
+      "default": "./src/client.tsx"
+    },
+    "./client": {
+      "types": "./src/client.tsx",
+      "default": "./src/client.tsx"
+    },
+    "./server": {
+      "types": "./src/server/index.ts",
+      "default": "./src/server/index.ts"
+    }
+  },
+  "files": [
+    "src/"
+  ],
+  "pi-dashboard-plugin": {
+    "id": "voice-input",
+    "displayName": "Voice Input",
+    "priority": 200,
+    "client": "./src/client.tsx",
+    "server": "./src/server/index.ts",
+    "configSchema": "./configSchema.json",
+    "claims": [
+      {
+        "slot": "command-input-action",
+        "component": "MicButton"
+      },
+      {
+        "slot": "settings-section",
+        "component": "VoiceInputSettings",
+        "tab": "general"
+      }
+    ],
+    "requires": {
+      "binaries": []
+    }
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
+  },
+  "dependencies": {
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.5.3",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.5.3",
+    "@mdi/js": "^7.4.47",
+    "@mdi/react": "^1.6.1"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}

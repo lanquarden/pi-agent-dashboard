@@ -1155,6 +1155,7 @@ export default function App() {
             pendingPrompt={!!selectedState.pendingPrompt}
             onCancelPending={handleCancelPending}
             sessionId={selectedId}
+            session={selectedSession}
             draft={selectedDraft}
             onDraftChange={setDraftForSelected}
             history={selectedHistory}

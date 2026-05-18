@@ -1,9 +1,10 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo, type ReactNode } from "react";
 import { Icon } from "@mdi/react";
 import { mdiFlash, mdiClipboardText, mdiWrench, mdiFolder, mdiFile, mdiPlay, mdiStop, mdiAlert, mdiConsole, mdiClose } from "@mdi/js";
-import type { CommandInfo, ImageContent, FileEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { CommandInfo, ImageContent, FileEntry, DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useImagePaste } from "../hooks/useImagePaste.js";
 import { ImagePreviewStrip } from "./ImagePreviewStrip.js";
+import { CommandInputActionSlot } from "@blackbelt-technology/dashboard-plugin-runtime";
 
 /** Built-in pi commands available from the dashboard */
 const BUILTIN_COMMANDS: CommandInfo[] = [
@@ -33,6 +34,8 @@ interface Props {
   onCancelPending?: () => void;
   /** Current session id — used to reset history-navigation state on switch. */
   sessionId?: string;
+  /** Full session object for plugin slot consumers. */
+  session?: DashboardSession;
   /** Controlled draft text. When provided, the textarea is controlled by the parent. */
   draft?: string;
   /** Parent callback for every text change (controlled mode). */
@@ -108,7 +111,7 @@ function extractAtQuery(text: string): string | null {
 
 type StopState = "idle" | "aborting" | "killing";
 
-export function CommandInput({ commands: externalCommands, onSend, onListFiles, fileResults, disabled, sessionStatus, retrying, onAbort, onForceKill, pendingPrompt, onCancelPending, sessionId, draft, onDraftChange, history, images, onImagesChange }: Props) {
+export function CommandInput({ commands: externalCommands, onSend, onListFiles, fileResults, disabled, sessionStatus, retrying, onAbort, onForceKill, pendingPrompt, onCancelPending, sessionId, session, draft, onDraftChange, history, images, onImagesChange }: Props) {
   // Treat retry-sleep as "still working" for Stop/Force-Stop visibility.
   const isWorking = sessionStatus === "streaming" || retrying === true;
   // Merge server commands with built-in commands, avoiding duplicates
@@ -487,6 +490,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
             target.style.height = Math.min(target.scrollHeight, 120) + "px";
           }}
         />
+        {session && <CommandInputActionSlot session={session} onInsertText={(text) => setText((prev) => prev + text)} />}
         <button
           onClick={() => handleSend("steer")}
           /* Send button mirrors textarea: enabled during streaming so the

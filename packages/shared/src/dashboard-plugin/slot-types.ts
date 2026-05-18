@@ -20,6 +20,7 @@ export type SlotId =
   | "anchored-popover"
   | "command-route"
   | "tool-renderer"
+  | "command-input-action"
   // React-or-descriptor slots
   | "session-card-memory"
   | "session-card-flows"
@@ -115,6 +116,11 @@ export const SLOT_DEFINITIONS: Record<SlotId, SlotDefinition> = {
     payloadTier: "react-only",
     description: "Custom React renderer for a specific tool call by toolName",
   },
+  "command-input-action": {
+    multiplicity: "many",
+    payloadTier: "react-only",
+    description: "Action buttons rendered inline in the command input button row",
+  },
   // Descriptor-only (extension-ui-system)
   "management-modal": {
     multiplicity: "many",
@@ -190,7 +196,8 @@ type SessionScopedSlot =
   | "content-view"
   | "content-header-sticky"
   | "content-inline-footer"
-  | "command-route";
+  | "command-route"
+  | "command-input-action";
 
 /** Slot ids whose predicates receive a folder descriptor. */
 type FolderScopedSlot = "sidebar-folder-section";

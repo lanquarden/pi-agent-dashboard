@@ -362,6 +362,25 @@ export function SettingsSectionByPluginSlot({ pluginId }: { pluginId: string }) 
   );
 }
 
+export function CommandInputActionSlot({ session, onInsertText }: { session: DashboardSession; onInsertText?: (text: string) => void }) {
+  const registry = useSlotRegistryOrNull();
+  const intents = useSlotIntents("command-input-action", session.id);
+  const legacyClaims = registry
+    ? forSessionRendered(registry.getClaims("command-input-action"), session)
+    : [];
+  if (!legacyClaims.length && intents.size === 0) return null;
+  return (
+    <>
+      {legacyClaims.map((c) =>
+        renderClaim(c as Parameters<typeof renderClaim>[0], "command-input-action", { session, onInsertText }),
+      )}
+      {Array.from(intents.entries()).map(([pluginId, intent]) =>
+        renderIntent(pluginId, "command-input-action", intent, session.id),
+      )}
+    </>
+  );
+}
+
 export function ToolRendererSlot({
   toolName,
   toolInput,

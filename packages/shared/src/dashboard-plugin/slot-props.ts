@@ -84,6 +84,11 @@ export interface SlotPropsMap {
     sessionId: string;
     pluginContext: AnyPluginContext;
   };
+  "command-input-action": {
+    session: DashboardSession;
+    pluginContext: AnyPluginContext;
+    onInsertText: (text: string) => void;
+  };
   // Descriptor-only slots don't have React props (consumed by extension-ui-system)
   "management-modal": Record<string, unknown>;
   "footer-segment": Record<string, unknown>;

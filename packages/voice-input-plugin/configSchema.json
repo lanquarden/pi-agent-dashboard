@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "mode": {
+      "type": "string",
+      "enum": ["push-to-talk", "toggle"],
+      "default": "push-to-talk",
+      "description": "Recording mode: hold button to record, or click to toggle on/off."
+    },
+    "transcriptionEngine": {
+      "type": "string",
+      "enum": ["client", "server"],
+      "default": "client",
+      "description": "Where transcription runs. 'client' uses parakeet.js WebGPU/WASM in the browser. 'server' sends audio to the dashboard server for processing. Server mode is recommended for mobile."
+    },
+    "language": {
+      "type": "string",
+      "default": "en",
+      "description": "BCP-47 language code for speech recognition (e.g. 'en', 'fr', 'de')."
+    },
+    "serverEngine": {
+      "type": "string",
+      "enum": ["parakeet-onnx", "openai-whisper"],
+      "default": "parakeet-onnx",
+      "description": "Server-side STT engine. 'parakeet-onnx' uses the same NVIDIA Parakeet ONNX models as the client via onnxruntime-node (local, no API key). 'openai-whisper' uses the OpenAI API (requires API key). Only used when transcriptionEngine is 'server'."
+    },
+    "openaiApiKey": {
+      "type": "string",
+      "default": "",
+      "description": "OpenAI API key for openai-whisper server engine. Leave empty to use OPENAI_API_KEY env var."
+    },
+    "parakeetModelRepo": {
+      "type": "string",
+      "default": "ysdede/parakeet-tdt-0.6b-v3-onnx",
+      "description": "HuggingFace repo for Parakeet ONNX model files. Only used when serverEngine is 'parakeet-onnx'."
+    },
+    "vadThreshold": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0.3,
+      "description": "Voice Activity Detection sensitivity threshold. Lower = more sensitive."
+    },
+    "parakeetModelUrl": {
+      "type": "string",
+      "default": "",
+      "description": "URL to parakeet.js ONNX model files. Leave empty to use default CDN (Hugging Face)."
+    }
+  },
+  "additionalProperties": false
+}
