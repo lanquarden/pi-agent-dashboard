@@ -513,6 +513,7 @@ This section lists only the **architectural backbone** — the files agents touc
 | `scripts/verify-lockfile-versions.mjs` | Sanity gate: asserts every cross-ref in `package-lock.json` is `^<root.version>`; runs after `npm install --package-lock-only` in `prepare` |
 | `packages/shared/src/__tests__/publish-workflow-contract.test.ts` | Repo-lint: pin electron job's `needs:` array and `fail-fast: false` |
 | `packages/shared/src/__tests__/no-bash-on-windows.test.ts` | Repo-lint: forbid `shell: bash` on steps reachable on Windows runners |
+| `packages/voice-input-plugin/src/client.tsx` | MicButton push-to-talk/toggle + VoiceInputSettings. Client+server transcription via parakeet.js/onnxruntime-node. See change: add-voice-input-plugin. |
 
 ## Build & Restart Workflow
 

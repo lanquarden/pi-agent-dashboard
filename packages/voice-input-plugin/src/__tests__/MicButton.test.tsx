@@ -17,6 +17,21 @@ import { createSlotRegistry } from "@blackbelt-technology/dashboard-plugin-runti
 import { MicButton, VoiceInputSettings, type VoiceInputConfig } from "../client.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
+// Mock the client-side transcription module so tests never hit real ONNX runtime
+vi.mock("../client-transcription.js", () => ({
+  loadModel: vi.fn().mockResolvedValue({}),
+  getStreamer: vi.fn().mockReturnValue({
+    processChunk: vi.fn().mockResolvedValue({ text: "hello world", chunkText: "hello world", words: [], is_final: false }),
+    finalize: vi.fn().mockReturnValue({ text: "hello world", words: [], is_final: true }),
+    reset: vi.fn(),
+  }),
+  transcribeChunks: vi.fn().mockResolvedValue("hello world"),
+  resetStreamer: vi.fn(),
+  isModelLoaded: vi.fn().mockReturnValue(true),
+  isLoadingModel: vi.fn().mockReturnValue(false),
+  destroyModel: vi.fn(),
+}));
+
 // ── Test fixtures ────────────────────────────────────────────────────────────
 
 function makeSession(id = "s1"): DashboardSession {
@@ -126,7 +141,7 @@ describe("MicButton", () => {
 
   it("renders a mic button with accessible label", () => {
     render(
-      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} />),
+      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} pluginContext={undefined} />),
     );
     const btn = screen.getByRole("button", { name: /start voice input/i });
     expect(btn).toBeDefined();
@@ -135,7 +150,7 @@ describe("MicButton", () => {
   it("shows push-to-talk title when mode is push-to-talk", () => {
     seedConfig({ mode: "push-to-talk" });
     render(
-      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} />),
+      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} pluginContext={undefined} />),
     );
     const btn = screen.getByRole("button");
     expect(btn.getAttribute("title")).toContain("Hold to record");
@@ -144,7 +159,7 @@ describe("MicButton", () => {
   it("shows toggle title when mode is toggle", () => {
     seedConfig({ mode: "toggle" });
     render(
-      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} />),
+      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} pluginContext={undefined} />),
     );
     const btn = screen.getByRole("button");
     expect(btn.getAttribute("title")).toContain("Click to toggle");
@@ -156,7 +171,7 @@ describe("MicButton", () => {
     restoreMocks = mockGetUserMedia();
 
     render(
-      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} />),
+      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} pluginContext={undefined} />),
     );
 
     const btn = screen.getByRole("button");
@@ -187,7 +202,7 @@ describe("MicButton", () => {
     restoreMocks = mockGetUserMedia();
 
     render(
-      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} />),
+      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} pluginContext={undefined} />),
     );
 
     const btn = screen.getByRole("button");
@@ -208,7 +223,7 @@ describe("MicButton", () => {
     seedConfig({ mode: "toggle" });
 
     render(
-      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} />),
+      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} pluginContext={undefined} />),
     );
 
     const btn = screen.getByRole("button");
@@ -246,7 +261,7 @@ describe("MicButton", () => {
     });
 
     render(
-      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} />),
+      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} pluginContext={undefined} />),
     );
 
     const btn = screen.getByRole("button");
@@ -267,7 +282,7 @@ describe("MicButton", () => {
     const onInsertText = vi.fn();
 
     render(
-      wrap(<MicButton session={makeSession()} onInsertText={onInsertText} />),
+      wrap(<MicButton session={makeSession()} onInsertText={onInsertText} pluginContext={undefined} />),
     );
 
     const btn = screen.getByRole("button");
@@ -306,7 +321,7 @@ describe("MicButton", () => {
     });
 
     render(
-      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} />),
+      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} pluginContext={undefined} />),
     );
 
     const btn = screen.getByRole("button");
@@ -326,7 +341,7 @@ describe("MicButton", () => {
     restoreMocks = mockGetUserMedia();
 
     const { unmount } = render(
-      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} />),
+      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} pluginContext={undefined} />),
     );
 
     const btn = screen.getByRole("button");

@@ -52,7 +52,9 @@
     "@blackbelt-technology/dashboard-plugin-runtime": "^0.5.3",
     "@blackbelt-technology/pi-dashboard-shared": "^0.5.3",
     "@mdi/js": "^7.4.47",
-    "@mdi/react": "^1.6.1"
+    "@mdi/react": "^1.6.1",
+    "onnxruntime-node": "^1.21.0",
+    "parakeet.js": "^1.4.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.6.3",

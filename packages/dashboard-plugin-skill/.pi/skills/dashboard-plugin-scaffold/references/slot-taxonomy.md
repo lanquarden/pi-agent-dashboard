@@ -13,6 +13,7 @@ For the full slot table including descriptor-only slots (`management-modal`, `fo
 | `content-header-sticky` | many per session | persistent | Sticky element above the content view. Use for breadcrumbs, action bars (e.g. flow architect bar). |
 | `content-inline-footer` | many per session | persistent | Inline element below the content view, above the chat input. Use for status summaries (e.g. flow summary). |
 | `anchored-popover` | one at a time | one-shot | Popover anchored to a triggering UI element. Use for transient detail (e.g. tasks popover). |
+| `command-input-action` | many | persistent | Renders action buttons in the CommandInput button row (before Send/Stop). Session-scoped with `onInsertText(text)` callback. |
 | `command-route` | many globally | persistent | Maps a slash command (`/specs`) or URL route to a `content-view` claim. The `command` field names the slash command; the `component` field names the content-view component. |
 | `settings-section` | many globally | persistent | A section in the dashboard's Settings page. Use for plugin config UI. Use `usePluginConfig<T>()` to read; `pluginRouter.send({ type: "plugin_config_write", id, config })` to write. |
 | `tool-renderer` | many globally | persistent | A custom React component rendering `tool_call` events with a specific `toolName`. Use to give a tool richer rendering than the default tool card. The `toolName` field selects which tool. |

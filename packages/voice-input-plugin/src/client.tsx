@@ -9,7 +9,16 @@ import React, { useState, useCallback, useRef, useEffect } from "react";
 import { Icon } from "@mdi/react";
 import { mdiMicrophone, mdiMicrophoneOff } from "@mdi/js";
 import { usePluginConfig, usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime/context";
-import type { SlotProps } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props";
+import type { SlotProps } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
+import {
+  loadModel,
+  getStreamer,
+  transcribeChunks,
+  resetStreamer,
+  isModelLoaded,
+  isLoadingModel,
+  destroyModel,
+} from "./client-transcription.js";
 
 // ── Config type ──────────────────────────────────────────────────────────────
 
@@ -114,10 +123,23 @@ export function MicButton({ session, onInsertText }: SlotProps<"command-input-ac
     try {
       setStatus("requesting-permission");
 
-      // TODO: In client mode, load parakeet.js and ONNX model here.
-      // For MVP, set a brief loading state then begin capture.
-      setStatus("loading-model");
+      // Client mode: lazily load parakeet.js model on first use
+      if (config.transcriptionEngine === "client" && !isModelLoaded() && !isLoadingModel()) {
+        setStatus("loading-model");
+        setLiveText("Loading speech model (~600MB)...");
+        try {
+          await loadModel(config, (pct) => {
+            setLiveText(`Loading speech model... ${pct}%`);
+          });
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          setStatus("error");
+          setLiveText(`Model load failed: ${msg}`);
+          return;
+        }
+      }
 
+      resetStreamer();
       const capture = createAudioCapture((chunk) => {
         chunksRef.current.push(chunk);
       });
@@ -133,7 +155,7 @@ export function MicButton({ session, onInsertText }: SlotProps<"command-input-ac
       setStatus("error");
       setLiveText(msg);
     }
-  }, []);
+  }, [config]);
 
   const stopRecording = useCallback(async () => {
     captureRef.current?.stop();
@@ -141,28 +163,46 @@ export function MicButton({ session, onInsertText }: SlotProps<"command-input-ac
     setStatus("transcribing");
     setLiveText("Transcribing...");
 
-    // TODO: Run transcription on accumulated audio chunks.
-    // For MVP, this is a placeholder.
     const allChunks = chunksRef.current;
     chunksRef.current = [];
 
-    if (config.transcriptionEngine === "client") {
-      // Client-side: run parakeet.js inference
-      // Placeholder — would run ONNX inference on the audio data
-      await new Promise((r) => setTimeout(r, 500));
-      const transcribedText = "[Voice transcription placeholder]";
-      onInsertText?.(transcribedText);
-    } else {
-      // Server-side: send audio chunks to dashboard server via plugin WS
-      // Placeholder — would stream PCM chunks to server
-      await new Promise((r) => setTimeout(r, 500));
-      const transcribedText = "[Server transcription placeholder]";
-      onInsertText?.(transcribedText);
+    try {
+      if (config.transcriptionEngine === "client") {
+        // Client-side: run parakeet.js ONNX inference on accumulated PCM chunks
+        const model = await loadModel(config);
+        const streamer = getStreamer(model);
+        const text = await transcribeChunks(allChunks, streamer);
+        if (text) onInsertText?.(text);
+      } else {
+        // Server-side: send audio chunks to dashboard server via plugin WebSocket
+        const base64Chunks = allChunks.map((chunk) => {
+          const bytes = new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+          return btoa(String.fromCharCode(...bytes));
+        });
+
+        for (let i = 0; i < base64Chunks.length; i++) {
+          send({
+            type: "voice_input_audio",
+            sessionId: session.id,
+            chunk: base64Chunks[i],
+            final: i === base64Chunks.length - 1,
+          });
+        }
+
+        // Server responds with transcript via voice_input_transcript message —
+        // the `transcribedText` cache below handles async response.
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setStatus("error");
+      setLiveText(`Transcription failed: ${msg}`);
+      return;
     }
 
     setStatus("idle");
     setLiveText("");
-  }, [config.transcriptionEngine, onInsertText]);
+  }, [config, session, onInsertText, send]);
 
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
     e.preventDefault();

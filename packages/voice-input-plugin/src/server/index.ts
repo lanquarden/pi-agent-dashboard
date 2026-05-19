@@ -3,24 +3,19 @@
  *
  * Handles server-side speech-to-text transcription.
  * Receives audio chunks from the browser via plugin WebSocket messages,
- * processes them through whisper.cpp or OpenAI Whisper API,
+ * processes them through Parakeet ONNX (onnxruntime-node) or OpenAI Whisper API,
  * and streams transcription results back.
  */
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
-
-interface VoiceInputConfig {
-  mode: "push-to-talk" | "toggle";
-  transcriptionEngine: "client" | "server";
-  language: string;
-  serverEngine: "parakeet-onnx" | "openai-whisper";
-  openaiApiKey: string;
-  parakeetModelRepo: string;
-  vadThreshold: number;
-  parakeetModelUrl: string;
-}
+import {
+  initParakeetEngine,
+  transcribeWithParakeet,
+  transcribeWithWhisper,
+  type VoiceInputServerConfig,
+} from "./server-transcription.js";
 
 export default async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
-  const cfg = ctx.pluginConfig as VoiceInputConfig;
+  const cfg = ctx.getPluginConfig<VoiceInputServerConfig>();
 
   // Only register handlers if server-side transcription is configured.
   if (cfg.transcriptionEngine !== "server") {
@@ -30,20 +25,21 @@ export default async function registerPlugin(ctx: ServerPluginContext): Promise<
 
   ctx.logger.info(`voice-input server entry: server-mode with engine=${cfg.serverEngine}`);
 
-  // ── Browser handler: voice_input_audio_chunk ──────────────────────────────
-  // Receives audio chunks from the browser (base64-encoded PCM float32).
-  //
+  // Initialize the Parakeet ONNX engine (downloads models on first use)
+  if (cfg.serverEngine === "parakeet-onnx") {
+    try {
+      await initParakeetEngine(cfg);
+      ctx.logger.info("voice-input: Parakeet ONNX engine initialized");
+    } catch (err) {
+      ctx.logger.error(`voice-input: failed to init Parakeet engine: ${(err as Error).message}`);
+      // Continue — will attempt init on first transcription request
+    }
+  }
+
+  // ── Browser handler: voice_input_audio ─────────────────────────────────────
   // Protocol:
   //   Browser → Server: { type: "voice_input_audio", sessionId, chunk: "<base64>", final: boolean }
   //   Server → Browser: { type: "voice_input_transcript", sessionId, text: "...", partial: boolean }
-  //
-  // TODO: Implement actual onnxruntime-node + Parakeet ONNX inference.
-  // Approach:
-  //   1. Load ONNX models (encoder, decoder) via onnxruntime-node from HuggingFace
-  //   2. Mel spectrogram preprocessing (pure JS, same algorithm as parakeet.js)
-  //   3. Encoder inference → decoder inference → tokenizer → text
-  //   4. Stateful streaming: cache previous decoder state for next chunk
-  // Current: stub.
 
   ctx.registerBrowserHandler("voice_input_audio", async (msg, _ws) => {
     const { sessionId, chunk, final: isFinal } = msg as {
@@ -53,19 +49,44 @@ export default async function registerPlugin(ctx: ServerPluginContext): Promise<
       final?: boolean;
     };
 
-    ctx.logger.debug({ sessionId, chunkSize: chunk?.length, isFinal }, "voice_input_audio received");
+    if (!chunk) {
+      ctx.logger.warn(`voice_input_audio received with no chunk for session ${sessionId}`);
+      return;
+    }
 
-    if (isFinal && chunk) {
-      const placeholderText = `[Voice transcription for session ${sessionId}]`;
+    ctx.logger.info(`voice_input_audio chunk ${sessionId} size=${chunk.length} final=${isFinal}`);
+
+    try {
+      let text: string;
+      const currentCfg = ctx.getPluginConfig<VoiceInputServerConfig>();
+
+      if (currentCfg.serverEngine === "openai-whisper") {
+        text = await transcribeWithWhisper(chunk, currentCfg);
+      } else {
+        text = await transcribeWithParakeet(sessionId, chunk, !!isFinal, currentCfg);
+      }
+
+      if (text) {
+        ctx.broadcastToSubscribers({
+          type: "voice_input_transcript",
+          sessionId,
+          text,
+          partial: !isFinal,
+        });
+
+        ctx.logger.info(`voice_input result ${sessionId} len=${text.length} final=${isFinal}`);
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      ctx.logger.error(`voice_input error ${sessionId}: ${message}`);
 
       ctx.broadcastToSubscribers({
         type: "voice_input_transcript",
         sessionId,
-        text: placeholderText,
+        text: "",
         partial: false,
+        error: message,
       });
-
-      ctx.logger.info({ sessionId }, "voice_input transcription complete (placeholder)");
     }
   });
 

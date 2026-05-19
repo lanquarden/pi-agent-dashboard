@@ -32,22 +32,22 @@
 
 ## 4. Implement client-side parakeet.js transcription pipeline
 
-- [ ] 4.1 Dynamically import `parakeet.js` (`fromHub` or `fromUrls`) on first use — avoid bundling the 600MB model.
-- [ ] 4.2 Load Parakeet ONNX model (encoder, decoder, tokenizer) from HuggingFace CDN or custom URL.
-- [ ] 4.3 Run ONNX inference in a Web Worker to avoid blocking the main thread.
-- [ ] 4.4 Feed PCM chunks from audio capture to the parakeet.js streaming transcriber.
-- [ ] 4.5 Return transcribed text via `onInsertText` callback.
-- [ ] 4.6 Handle model download progress and errors (network failure, out-of-memory).
+- [x] 4.1 Dynamically import `parakeet.js` (`fromHub` or `fromUrls`) on first use — avoid bundling the 600MB model.
+- [x] 4.2 Load Parakeet ONNX model (encoder, decoder, tokenizer) from HuggingFace CDN or custom URL.
+- [x] 4.3 Run ONNX inference in a Web Worker to avoid blocking the main thread.
+- [x] 4.4 Feed PCM chunks from audio capture to the parakeet.js streaming transcriber.
+- [x] 4.5 Return transcribed text via `onInsertText` callback.
+- [x] 4.6 Handle model download progress and errors (network failure, out-of-memory).
 
 ## 5. Implement server-side Parakeet ONNX transcription
 
-- [ ] 5.1 Install `onnxruntime-node` as dependency of voice-input-plugin.
-- [ ] 5.2 Download Parakeet ONNX model files (encoder, decoder, tokenizer) from HuggingFace on server startup.
-- [ ] 5.3 Implement mel spectrogram preprocessing in pure JS (same algorithm as parakeet.js `src/mel.js`).
-- [ ] 5.4 Create ONNX inference sessions for encoder and decoder.
-- [ ] 5.5 Implement streaming transcription: incremental decoder state handoff between chunks.
-- [ ] 5.6 Protocol: browser sends base64 PCM chunks via `voice_input_audio` WS message, server returns `voice_input_transcript`.
-- [ ] 5.7 Add OpenAI Whisper API fallback as alternative server engine.
+- [x] 5.1 Install `onnxruntime-node` as dependency of voice-input-plugin.
+- [x] 5.2 Download Parakeet ONNX model files (encoder, decoder, tokenizer) from HuggingFace on server startup.
+- [x] 5.3 Implement mel spectrogram preprocessing in pure JS (same algorithm as parakeet.js `src/mel.js`).
+- [x] 5.4 Create ONNX inference sessions for encoder and decoder.
+- [x] 5.5 Implement streaming transcription: incremental decoder state handoff between chunks.
+- [x] 5.6 Protocol: browser sends base64 PCM chunks via `voice_input_audio` WS message, server returns `voice_input_transcript`.
+- [x] 5.7 Add OpenAI Whisper API fallback as alternative server engine.
 
 ## 6. Implement VoiceInputSettings component
 
@@ -75,11 +75,11 @@
 - [x] 8.1 MicButton tests: rendering, push-to-talk hold/tap, toggle mode, permission denial, text insertion, disabled state, cleanup on unmount.
 - [x] 8.2 VoiceInputSettings tests: rendering, default values, mode switch, engine switch, save dispatch, language update.
 - [x] 8.3 All 17 tests pass with `PluginContextProvider` + `CurrentPluginLayer` wrapping.
-- [ ] 8.4 Add tests for client-side parakeet.js pipeline (mock ONNX runtime).
-- [ ] 8.5 Add tests for server-side transcription handler (mock onnxruntime-node).
+- [x] 8.4 Add tests for client-side parakeet.js pipeline (mock ONNX runtime).
+- [x] 8.5 Add tests for server-side transcription handler (mock onnxruntime-node).
 
 ## 9. Documentation
 
-- [ ] 9.1 Update `docs/file-index-plugins.md` with voice-input-plugin entries.
-- [ ] 9.2 Update `packages/dashboard-plugin-skill/.pi/skills/dashboard-plugin-scaffold/references/slot-taxonomy.md` with `command-input-action` slot.
-- [ ] 9.3 Add `AGENTS.md` Key Files entry for voice-input-plugin.
+- [x] 9.1 Update `docs/file-index-plugins.md` with voice-input-plugin entries.
+- [x] 9.2 Update `packages/dashboard-plugin-skill/.pi/skills/dashboard-plugin-scaffold/references/slot-taxonomy.md` with `command-input-action` slot.
+- [x] 9.3 Add `AGENTS.md` Key Files entry for voice-input-plugin.
