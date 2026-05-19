@@ -3,7 +3,7 @@
 import { FlowActivityBadgeClaim, SessionFlowActionsClaim, shouldRenderFlowsSubcard, FlowDashboardClaim, FlowArchitectClaim, FlowYamlPreviewClaim, isFlowYamlPreviewActive } from "/home/lanquarden/hq/repos/pi-agent-dashboard/packages/flows-plugin/src/client/index";
 import { HonchoSettings, HonchoBadge, shouldRenderHonchoMemory, HonchoCardActions, HonchoMapPopover } from "/home/lanquarden/hq/repos/pi-agent-dashboard/packages/honcho-plugin/src/client/index";
 import { JjWorkspaceBadge, isInJjWorkspace, JjActionBar, isInJjRepo, JjInitAffordance, isInGitRepoButNotJj, JjWorkspaceList, JjWorkspaceView, JjPluginSettings } from "/home/lanquarden/hq/repos/pi-agent-dashboard/packages/jj-plugin/src/client/index";
-import { PiWorktreesBadge, hasPiWorktrees } from "/home/lanquarden/hq/repos/pi-agent-dashboard/packages/pi-worktrees-plugin/src/client/index";
+import { PiDevWorktreesBadge, hasPiDevWorktrees } from "/home/lanquarden/hq/repos/pi-agent-dashboard/packages/pi-dev-worktrees-plugin/src/client/index";
 import { BuiltInRolesSettings } from "/home/lanquarden/hq/repos/pi-agent-dashboard/packages/roles-plugin/src/index";
 import { FlowsAnthropicBridgeSettings } from "/home/lanquarden/hq/repos/pi-agent-dashboard/packages/flows-anthropic-bridge-plugin/src/client";
 
@@ -157,20 +157,20 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
   {
     manifest: {
-        "id": "pi-worktrees",
-        "displayName": "pi-worktrees Workspace",
+        "id": "pi-dev-worktrees",
+        "displayName": "pi-dev-worktrees Workspace",
         "priority": 100,
         "claims": [
             {
                 "slot": "session-card-badge",
-                "component": "PiWorktreesBadge",
-                "predicate": "hasPiWorktrees"
+                "component": "PiDevWorktreesBadge",
+                "predicate": "hasPiDevWorktrees"
             }
         ],
         "client": "./src/client/index.tsx"
     },
     claims: [
-      { pluginId: "pi-worktrees", priority: 100, slot: "session-card-badge", Component: PiWorktreesBadge, predicate: hasPiWorktrees },
+      { pluginId: "pi-dev-worktrees", priority: 100, slot: "session-card-badge", Component: PiDevWorktreesBadge, predicate: hasPiDevWorktrees },
     ],
   },
   {
