@@ -11,7 +11,7 @@ import { describe, it, expect, vi } from "vitest";
 // Re-create the patched notify logic inline so we can unit-test it
 // without spinning up the full bridge session_start handler.
 function makeNotify(
-  connection: { send: ReturnType<typeof vi.fn> },
+  connection: { send: (msg: unknown) => void },
   sessionId: string,
   originalNotify?: (msg: string, level?: string) => void,
 ) {
@@ -34,7 +34,7 @@ function makeNotify(
     const extraProps =
       typeof levelOrOpts === "object" ? (levelOrOpts?.props ?? {}) : {};
 
-    originalNotify?.(message, level);
+    if (originalNotify) (originalNotify as unknown as (msg: string, level?: string) => void)(message, level);
     connection.send({
       type: "prompt_request",
       sessionId,
@@ -48,38 +48,39 @@ function makeNotify(
 
 describe("ctx.ui.notify patch (bridge-notify-opts)", () => {
   function setup() {
-    const connection = { send: vi.fn() };
-    const originalNotify = vi.fn();
+    const send = vi.fn();
+    const connection = { send: send as (msg: unknown) => void };
+    const originalNotify = vi.fn() as unknown as (msg: string, level?: string) => void;
     const notify = makeNotify(connection, "s1", originalNotify);
-    return { connection, originalNotify, notify };
+    return { send, connection, originalNotify, notify };
   }
 
   describe("string level (legacy form)", () => {
     it("sets prompt.type = 'notify'", () => {
-      const { connection, notify } = setup();
+      const { send, notify } = setup();
       notify("Hello", "info");
-      const msg = connection.send.mock.calls[0][0];
+      const msg = send.mock.calls[0][0];
       expect(msg.prompt.type).toBe("notify");
     });
 
     it("sets component.type = 'notify'", () => {
-      const { connection, notify } = setup();
+      const { send, notify } = setup();
       notify("Hello", "info");
-      const msg = connection.send.mock.calls[0][0];
+      const msg = send.mock.calls[0][0];
       expect(msg.component.type).toBe("notify");
     });
 
     it("sets component.props.level", () => {
-      const { connection, notify } = setup();
+      const { send, notify } = setup();
       notify("Hello", "info");
-      const msg = connection.send.mock.calls[0][0];
+      const msg = send.mock.calls[0][0];
       expect(msg.component.props.level).toBe("info");
     });
 
     it("does not set prompt.metadata", () => {
-      const { connection, notify } = setup();
+      const { send, notify } = setup();
       notify("Hello", "info");
-      const msg = connection.send.mock.calls[0][0];
+      const msg = send.mock.calls[0][0];
       expect(msg.prompt.metadata).toBeUndefined();
     });
 
@@ -92,30 +93,30 @@ describe("ctx.ui.notify patch (bridge-notify-opts)", () => {
 
   describe("object opts with toolCallId + method + props", () => {
     it("sets prompt.type = method", () => {
-      const { connection, notify } = setup();
+      const { send, notify } = setup();
       notify("cmd", { toolCallId: "tc-1", method: "bash-dispatch", props: { routing: "host" } });
-      const msg = connection.send.mock.calls[0][0];
+      const msg = send.mock.calls[0][0];
       expect(msg.prompt.type).toBe("bash-dispatch");
     });
 
     it("sets component.type = method", () => {
-      const { connection, notify } = setup();
+      const { send, notify } = setup();
       notify("cmd", { toolCallId: "tc-1", method: "bash-dispatch", props: { routing: "host" } });
-      const msg = connection.send.mock.calls[0][0];
+      const msg = send.mock.calls[0][0];
       expect(msg.component.type).toBe("bash-dispatch");
     });
 
     it("sets prompt.metadata.toolCallId", () => {
-      const { connection, notify } = setup();
+      const { send, notify } = setup();
       notify("cmd", { toolCallId: "tc-1", method: "bash-dispatch", props: { routing: "host" } });
-      const msg = connection.send.mock.calls[0][0];
+      const msg = send.mock.calls[0][0];
       expect(msg.prompt.metadata?.toolCallId).toBe("tc-1");
     });
 
     it("includes extra props in component.props", () => {
-      const { connection, notify } = setup();
+      const { send, notify } = setup();
       notify("cmd", { toolCallId: "tc-1", method: "bash-dispatch", props: { routing: "host" } });
-      const msg = connection.send.mock.calls[0][0];
+      const msg = send.mock.calls[0][0];
       expect(msg.component.props.routing).toBe("host");
     });
 
@@ -128,32 +129,32 @@ describe("ctx.ui.notify patch (bridge-notify-opts)", () => {
 
   describe("object opts with toolCallId only (method defaults to 'notify')", () => {
     it("prompt.type defaults to 'notify'", () => {
-      const { connection, notify } = setup();
+      const { send, notify } = setup();
       notify("msg", { toolCallId: "tc-2" });
-      const msg = connection.send.mock.calls[0][0];
+      const msg = send.mock.calls[0][0];
       expect(msg.prompt.type).toBe("notify");
     });
 
     it("component.type defaults to 'notify'", () => {
-      const { connection, notify } = setup();
+      const { send, notify } = setup();
       notify("msg", { toolCallId: "tc-2" });
-      const msg = connection.send.mock.calls[0][0];
+      const msg = send.mock.calls[0][0];
       expect(msg.component.type).toBe("notify");
     });
 
     it("prompt.metadata.toolCallId is set", () => {
-      const { connection, notify } = setup();
+      const { send, notify } = setup();
       notify("msg", { toolCallId: "tc-2" });
-      const msg = connection.send.mock.calls[0][0];
+      const msg = send.mock.calls[0][0];
       expect(msg.prompt.metadata?.toolCallId).toBe("tc-2");
     });
   });
 
   describe("no opts (bare call)", () => {
     it("prompt.type = 'notify', no metadata", () => {
-      const { connection, notify } = setup();
+      const { send, notify } = setup();
       notify("bare");
-      const msg = connection.send.mock.calls[0][0];
+      const msg = send.mock.calls[0][0];
       expect(msg.prompt.type).toBe("notify");
       expect(msg.prompt.metadata).toBeUndefined();
     });

@@ -4,6 +4,7 @@ import { FlowActivityBadgeClaim, SessionFlowActionsClaim, shouldRenderFlowsSubca
 import { HonchoSettings, HonchoBadge, shouldRenderHonchoMemory, HonchoCardActions, HonchoMapPopover } from "/home/lanquarden/hq/repos/pi-agent-dashboard/packages/honcho-plugin/src/client/index";
 import { JjWorkspaceBadge, isInJjWorkspace, JjActionBar, isInJjRepo, JjInitAffordance, isInGitRepoButNotJj, JjWorkspaceList, JjWorkspaceView, JjPluginSettings } from "/home/lanquarden/hq/repos/pi-agent-dashboard/packages/jj-plugin/src/client/index";
 import { PiDevWorktreesBadge, hasPiDevWorktrees } from "/home/lanquarden/hq/repos/pi-agent-dashboard/packages/pi-dev-worktrees-plugin/src/client/index";
+import { PiWorktreesBadge, hasPiWorktrees } from "/home/lanquarden/hq/repos/pi-agent-dashboard/packages/pi-worktrees-plugin/src/client/index";
 import { BuiltInRolesSettings } from "/home/lanquarden/hq/repos/pi-agent-dashboard/packages/roles-plugin/src/index";
 import { FlowsAnthropicBridgeSettings } from "/home/lanquarden/hq/repos/pi-agent-dashboard/packages/flows-anthropic-bridge-plugin/src/client";
 
@@ -175,6 +176,24 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
   {
     manifest: {
+        "id": "pi-worktrees",
+        "displayName": "pi-worktrees Workspace",
+        "priority": 100,
+        "claims": [
+            {
+                "slot": "session-card-badge",
+                "component": "PiWorktreesBadge",
+                "predicate": "hasPiWorktrees"
+            }
+        ],
+        "client": "./src/client/index.tsx"
+    },
+    claims: [
+      { pluginId: "pi-worktrees", priority: 100, slot: "session-card-badge", Component: PiWorktreesBadge, predicate: hasPiWorktrees },
+    ],
+  },
+  {
+    manifest: {
         "id": "roles",
         "displayName": "Roles",
         "priority": 100,
@@ -225,4 +244,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "51f40ca07ddec47359626d829adf9092a0c95a67f9786dcf96e53969e8de9c35";
+export const PLUGIN_REGISTRY_HASH = "f60b291fa44e580e10e96ef6427d4dd1141a180897ba3724aa55409b44cb0903";
