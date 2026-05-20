@@ -41,7 +41,7 @@ function DispatchChips({ dispatch }: { dispatch: BashDispatchData }) {
 }
 
 export function EnhancedBashToolRenderer(props: ToolRendererProps) {
-  const dispatch = (props.args as any)?._dispatch as BashDispatchData | undefined;
+  const dispatch = (props.args as any)?._pluginData?.["pi-dev-worktrees:bash-dispatch"] as BashDispatchData | undefined;
 
   if (!dispatch) {
     return <BashToolRenderer {...props} />;

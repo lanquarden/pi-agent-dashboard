@@ -1351,22 +1351,29 @@ export function reduceEvent(state: SessionState, event: DashboardEvent): Session
     }
 
     default: {
-      // pi-dev-worktrees:bash-dispatch — patch dispatch metadata onto the
-      // matching toolResult row so the enhanced bash renderer can show chips.
-      if (event.eventType === "pi-dev-worktrees:bash-dispatch") {
-        const { toolCallId, ...dispatchData } = (data ?? {}) as Record<string, unknown>;
-        if (typeof toolCallId === "string") {
-          const idx = next.messages.findLastIndex(
-            (m) => m.role === "toolResult" && m.toolCallId === toolCallId,
-          );
-          if (idx >= 0) {
-            next.messages = [...next.messages];
-            next.messages[idx] = {
-              ...next.messages[idx],
-              args: { ...next.messages[idx].args, _dispatch: dispatchData },
-            };
-            break;
-          }
+      // ── Generic tool-row enrichment via event_forward ──────────────────
+      // Any event_forward whose data contains a `toolCallId` string is
+      // treated as a plugin enrichment targeting that tool row. The payload
+      // is stored under `args._pluginData[eventType]` so multiple plugins
+      // can annotate the same tool row independently. Plugin tool renderers
+      // read their data via `args._pluginData?.['my-event-type']`.
+      if (data && typeof (data as any).toolCallId === "string") {
+        const { toolCallId, ...enrichment } = data as Record<string, unknown>;
+        const idx = next.messages.findLastIndex(
+          (m) => m.role === "toolResult" && m.toolCallId === toolCallId,
+        );
+        if (idx >= 0) {
+          next.messages = [...next.messages];
+          const prev = next.messages[idx];
+          const prevPluginData = ((prev.args as any)?._pluginData ?? {}) as Record<string, unknown>;
+          next.messages[idx] = {
+            ...prev,
+            args: {
+              ...prev.args,
+              _pluginData: { ...prevPluginData, [event.eventType]: enrichment },
+            },
+          };
+          break;
         }
       }
 

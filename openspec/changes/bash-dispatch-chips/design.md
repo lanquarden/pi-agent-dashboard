@@ -1,114 +1,60 @@
 ## Context
 
-### How the suppression mechanism works
-
-`findActiveInteractiveToolResultIds` (in `collapse-retried-errors.ts`) hides a `toolResult` row when it is immediately followed by a **pending** `interactiveUi` row with the same `toolCallId`. The `interactiveUi` renders alone via `getInteractiveRenderer(method)`. This is the same mechanism `ask_user` uses.
-
-For this to work deliberately:
-1. The `prompt_request` must carry `metadata.toolCallId` matching the bash tool call
-2. It must arrive **after** `tool_execution_start` (so the `toolResult` row exists) — guaranteed because `tool_call` fires after `tool_execution_start`
-3. The method type (`"bash-dispatch"`) must have a registered renderer
-
 ### Event ordering in pi (confirmed)
 
 ```
 tool_execution_start  ← args = original LLM command → forwarded to dashboard
 tool_call             ← RTK mutates command; pi-dev-worktrees sees post-RTK command and applies routing
 (tool executes)
-tool_execution_update ← observation-only, no return value, fires with streaming output
-tool_execution_end    ← observation-only, no return value
-tool_result           ← can return { content, details } → becomes toolDetails on the row
+tool_execution_update ← observation-only, streaming output
+tool_execution_end    ← observation-only
+tool_result           ← can return { content, details }
 ```
 
-Both `tool_call` and `tool_result` handlers run in extension load order (same direction). Since `pi-rtk-optimizer` loads before `pi-dev-worktrees` in `settings.json`, pi-dev-worktrees sees the final state in both directions — post-RTK command in `tool_call`, post-RTK-compacted output in `tool_result`.
+### Data flow: pi-dev-worktrees → dashboard client
 
-### What pi-dev-worktrees can observe
+1. pi-dev-worktrees emits `pi.events.emit("pi-dev-worktrees:bash-dispatch", payload)` from `tool_call` handler
+2. Bridge forwards automatically as `event_forward` message (existing mechanism, zero bridge changes)
+3. Client event reducer catches `event_forward` with `eventType === "pi-dev-worktrees:bash-dispatch"`
+4. Reducer patches the matching tool row's `args._dispatch` with the payload
+5. `EnhancedBashToolRenderer` (registered via `registerToolRenderer("bash", ...)`) reads `args._dispatch` and renders chips
 
-In its `tool_call` handler (before execution):
-- `event.input.command` = post-RTK command (RTK already ran)
-- Original LLM command = requires a `tool_execution_start` hook to capture `event.args.command`
+### What pi-dev-worktrees emits
 
-In its `tool_result` handler (after execution):
-- Full routing decision already made (`lastBashRouting`)
-- RTK rewrite status (compare stored llmCommand vs what was in event.input at tool_call time)
-- Can return `{ content: [...], details: { routing, rtkRewritten, llmCommand, rtkCommand } }`
+```ts
+pi.events.emit("pi-dev-worktrees:bash-dispatch", {
+  toolCallId,
+  llmCommand,
+  routing,        // "host" | "container" | "error"
+  rtkRewritten,
+  rtkCommand,     // only when rtkRewritten
+  hasDevcontainer,
+});
+```
 
-### Extension return value capabilities (confirmed from types)
+### registerToolRenderer mechanism
 
-| Event | Can return result? | Dashboard effect |
-|---|---|---|
-| `tool_execution_start` | No | — |
-| `tool_call` | Yes — mutates `event.input` | args forwarded in `tool_execution_start` (already fired, too late) |
-| `tool_execution_update` | No | — |
-| `tool_execution_end` | No | — |
-| `tool_result` | Yes — `{ content?, details?, isError? }` | `details` → `toolDetails` on row via `tool_execution_end` |
+`registerToolRenderer(toolName, Component)` replaces the built-in renderer for a tool. The plugin's `EnhancedBashToolRenderer` wraps the original `BashToolRenderer` — renders chips from `args._dispatch` when present, delegates to the original for standard rendering (output, streaming, etc.).
 
-`tool_execution_update` mutation of `event.partialResult` is observed by the bridge but only carries string output to the reducer — structured `details` can only come via `tool_result`.
+### Client reducer patch
 
-### Two candidate approaches
+When `event_forward` arrives with `eventType === "pi-dev-worktrees:bash-dispatch"`:
+- Extract `toolCallId` from payload
+- Find matching tool row in session events
+- Patch `row.args._dispatch = { routing, rtkRewritten, rtkCommand, hasDevcontainer, llmCommand }`
 
-#### Path A: `tool_result` returning `details` → `toolDetails`
-
-Pi-dev-worktrees returns `{ content: [...], details: { routing, rtkRewritten, llmCommand, rtkCommand } }` from its `tool_result` handler. The bridge forwards this as `tool_execution_end` data. The reducer sets `toolDetails` on the tool row at completion. `BashToolRenderer` reads `toolDetails` and renders chips.
-
-**Pros:**
-- No bridge changes needed
-- No new prompt_request mechanism
-- Clean extension API usage
-- Chips are permanent in history
-
-**Cons:**
-- Chips only appear *after* the tool completes — nothing while running
-- Requires modifying `BashToolRenderer.tsx` in the core client to read `toolDetails`
-- No card replacement — chips sit inside the existing bash card layout
-- `BashToolRenderer` currently doesn't receive `toolDetails` (it's passed to `ToolCallStep` but not threaded into the renderer props... actually `ToolRendererProps` does have `toolDetails?: Record<string, unknown>` — needs verification that `ToolCallStep` passes it through)
-
-#### Path B: `prompt_request` with `toolCallId` (bash-dispatch)
-
-Pi-dev-worktrees emits a structured `prompt_request` from its `tool_call` handler with `toolCallId` in metadata. This creates a paired `interactiveUi` row that suppresses the standard bash card while `pending`. A custom `BashDispatchRenderer` registered by pi-dev-worktrees-plugin renders the full replacement card with chips.
-
-**Pros:**
-- Chips visible immediately while command is running
-- Full card replacement — complete visual control
-- No `BashToolRenderer` core changes needed
-- Clean "in-flight context" vs "history" separation (pending → resolved)
-
-**Cons:**
-- Requires two bridge gaps to be filled:
-  1. `ctx.ui.notify` needs `opts.toolCallId` support (currently hardcoded `(message, level)`)
-  2. `registerInteractiveRenderer` not exported from `dashboard-plugin-runtime` — needs side-channel registry
-- More moving parts (two repos: extension + dashboard)
-- Dismiss/resolve lifecycle needs careful handling
-
-### Current gaps for Path B (confirmed)
-
-**Gap 1: `ctx.ui.notify` has no `opts`/`toolCallId` support**
-The bridge patches notify as `(message: string, level?: string) => { ... }` — no third parameter. All other patched methods (`select`, `input`, `confirm`, `editor`) already use `buildMeta(opts)` with `toolCallId`. Notify needs the same treatment.
-
-**Gap 2: `registerInteractiveRenderer` unreachable from plugins**
-Lives only in `packages/client/src/components/interactive-renderers/registry.ts`, not exported from `@blackbelt-technology/dashboard-plugin-runtime`. Plugins can't call it without breaking the client/plugin boundary.
-
-### Does `BashToolRenderer` actually receive `toolDetails`?
-
-`ToolRendererProps` has `toolDetails?: Record<string, unknown>` and `ToolCallStep` receives it, but `BashToolRenderer` currently ignores it entirely. For Path A, `BashToolRenderer` needs to be updated to read `toolDetails?.routing` and `toolDetails?.rtkRewritten`. This is a small targeted change but it does touch the core client.
+This makes dispatch metadata available immediately (while tool is in-flight) without waiting for tool completion.
 
 ## Decisions
 
-### D1: Path B — immediate in-flight feedback
+### D1: Tool-renderer replacement via `registerToolRenderer("bash", ...)`
 
-Chips must be visible while the command is running, not only after completion. Path A (chips via `tool_result` → `toolDetails`) only shows feedback after the tool finishes. **Path B is chosen**: emit a `prompt_request` with `toolCallId` from the `tool_call` handler in pi-dev-worktrees so the suppression mechanism hides the bare bash card immediately and the `BashDispatchRenderer` renders in its place.
+Plugin replaces the built-in bash card entirely. `EnhancedBashToolRenderer` composes over the original `BashToolRenderer` — adds chip row when `args._dispatch` is present, delegates all other rendering. Clean separation: plugin owns the visual enrichment, core owns the base bash card.
 
-### D2: General plugin card replacement capability
+### D2: Data flow via `event_forward` — zero bridge changes
 
-The ability to register a custom interactive renderer that suppresses a built-in tool card is broadly useful (e.g. future flow cards, custom tool visualizers). This is not modelled as bash-specific. The capability is:
-- `registerInteractiveRenderer` exported from `@blackbelt-technology/dashboard-plugin-runtime` (the function already exists in `packages/client/src/components/interactive-renderers/registry.ts`; it just needs re-exporting through the plugin runtime barrel)
-- Plugins register renderers keyed by `method` string; the suppression mechanism (existing `findActiveInteractiveToolResultIds`) already handles dismiss when the tool completes — no special lifecycle code needed
-- This makes the card-replacement pattern a documented, supported plugin primitive
+`pi.events.emit` in extensions automatically forwards through the bridge as `event_forward` messages. No new bridge code, no `ctx.ui.notify` changes, no `prompt_request` mechanism. Simplest possible data path.
 
-### D3: Bridge notify aligned with existing messages
+### D3: Client reducer patches tool row — `args._dispatch` carries routing metadata inline
 
-`ctx.ui.notify` is the only patched method that does not accept `opts`/`toolCallId`. All other patched methods (`select`, `input`, `confirm`, `editor`, `multiselect`) already thread `opts` through `buildMeta`. The fix:
-- Change notify signature to `(message: string, levelOrOpts?: string | { toolCallId?: string; level?: string }, opts?: { toolCallId?: string })`
-- Thread `toolCallId` through `buildMeta` so the forwarded `prompt_request` carries `metadata.toolCallId`
-- The `toolCallId` parameter is optional — existing callers that pass only `(message, level)` continue to work unchanged
-- No new WS message type needed; uses existing `prompt_request` with `component.type` set to the custom method (e.g. `"bash-dispatch"`)
+Reducer intercepts `event_forward` with known `eventType`, patches the in-memory tool row. Data is co-located with the tool call args — no separate state, no suppression mechanism, no interactive-renderer lifecycle. The renderer reads `args._dispatch` synchronously.

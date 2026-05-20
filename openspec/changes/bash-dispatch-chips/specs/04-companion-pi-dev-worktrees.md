@@ -1,31 +1,46 @@
 # Companion repo: pi-dev-worktrees
 
-> The implementation tasks and spec for the extension side live in the `pi-dev-worktrees` repo:
+> Implementation lives in `pi-dev-worktrees` repo:
 > `openspec/changes/bash-dispatch-chips/`
 >
 > Branch: `feature/bash-dispatch-chips`
 
-## Summary of what pi-dev-worktrees implements
+## Summary
 
-See `pi-dev-worktrees/openspec/changes/bash-dispatch-chips/specs/01-capture-and-emit.md` for full detail.
+pi-dev-worktrees emits a structured pi event from the `tool_call` handler after routing:
 
-1. **`tool_execution_start`**: store `event.args.command` in `pendingLlmCommands` Map keyed by `toolCallId`
-2. **`tool_call`**: after `applyBashIntercept`, call `ctx.ui.notify(llmCommand, { toolCallId, method: "bash-dispatch", props: BashDispatchProps })`
-3. **No `tool_result` changes** — suppression mechanism auto-dismisses on completion
+```ts
+pi.events.emit("pi-dev-worktrees:bash-dispatch", {
+  toolCallId: event.toolCallId,
+  llmCommand,
+  rtkRewritten,
+  rtkCommand: rtkRewritten ? rtkCommand : undefined,
+  routing: result.routing,
+  hasDevcontainer: state.devcontainer !== undefined,
+});
+```
 
-## Prerequisite
+## Data path
 
-The bridge opts extension (`specs/01-bridge-notify-opts.md` in this repo) must land first — or simultaneously — for the `method` and `props` fields to be forwarded correctly. In TUI context (no bridge) the extra opts are silently ignored.
+1. `tool_execution_start` → capture original LLM command in `pendingLlmCommands` Map
+2. `tool_call` → after `applyBashIntercept`, emit pi event with dispatch metadata
+3. Bridge forwards as `event_forward` automatically (existing mechanism)
+4. Client reducer patches tool row `args._dispatch`
+
+## No bridge dependency
+
+Uses `pi.events.emit` — forwarded by bridge's existing flow-event wiring. No `ctx.ui.notify`, no `prompt_request`, no bridge code changes needed.
 
 ## Payload contract
 
 ```ts
-interface BashDispatchProps {
-  llmCommand: string;        // original LLM command (pre-RTK)
+interface BashDispatchPayload {
+  toolCallId: string;
+  llmCommand: string;
   rtkRewritten: boolean;
-  rtkCommand?: string;       // present iff rtkRewritten
+  rtkCommand?: string;
   routing: "host" | "container" | "error";
-  hasDevcontainer: boolean;  // whether devcontainer is configured in session
+  hasDevcontainer: boolean;
 }
 ```
 
