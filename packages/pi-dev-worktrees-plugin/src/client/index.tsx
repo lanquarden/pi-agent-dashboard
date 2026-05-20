@@ -15,3 +15,4 @@ registerToolRenderer("bash", EnhancedBashToolRenderer);
 
 export { hasPiDevWorktrees } from "./predicates.js";
 export { PiDevWorktreesBadge } from "./PiDevWorktreesBadge.js";
+export { EnhancedBashToolRenderer } from "./EnhancedBashToolRenderer.js";

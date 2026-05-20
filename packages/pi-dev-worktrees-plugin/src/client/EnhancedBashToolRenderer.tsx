@@ -7,6 +7,7 @@ interface BashDispatchData {
   rtkRewritten?: boolean;
   rtkCommand?: string;
   routing?: "host" | "container" | "error";
+  containerId?: string;
   hasDevcontainer?: boolean;
 }
 
@@ -23,12 +24,12 @@ function DispatchChips({ dispatch }: { dispatch: BashDispatchData }) {
       )}
       {dispatch.routing === "container" && (
         <span className="inline-flex items-center px-1.5 py-[1px] rounded text-[10px] font-sans bg-blue-400/15 text-blue-400">
-          container
+          DEV
         </span>
       )}
       {dispatch.routing === "host" && dispatch.hasDevcontainer && (
         <span className="inline-flex items-center px-1.5 py-[1px] rounded text-[10px] font-sans bg-[var(--bg-quaternary)] text-[var(--text-secondary)]">
-          host
+          HOST
         </span>
       )}
       {dispatch.routing === "error" && (
@@ -37,6 +38,33 @@ function DispatchChips({ dispatch }: { dispatch: BashDispatchData }) {
         </span>
       )}
     </span>
+  );
+}
+
+/** Detail line showing RTK rewrite or container exec target */
+function DispatchDetail({ dispatch }: { dispatch: BashDispatchData }) {
+  if (!dispatch.rtkRewritten && dispatch.routing !== "container") return null;
+  return (
+    <div className="flex items-center gap-1.5 mt-1 text-[10px] text-[var(--text-muted)]">
+      {dispatch.rtkRewritten && dispatch.rtkCommand && (
+        <span className="flex items-center gap-1">
+          <span className="inline-flex items-center px-1 py-[0.5px] rounded font-medium bg-amber-400/15 text-amber-400">
+            RTK
+          </span>
+          <span className="font-mono truncate">{dispatch.rtkCommand}</span>
+        </span>
+      )}
+      {dispatch.routing === "container" && (
+        <span className="flex items-center gap-1">
+          <span className="inline-flex items-center px-1 py-[0.5px] rounded font-medium bg-blue-400/15 text-blue-400">
+            DEV
+          </span>
+          {dispatch.containerId && (
+            <span className="font-mono">{dispatch.containerId}</span>
+          )}
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -56,6 +84,8 @@ export function EnhancedBashToolRenderer(props: ToolRendererProps) {
         </span>
         <DispatchChips dispatch={dispatch} />
       </div>
+
+      <DispatchDetail dispatch={dispatch} />
 
       {props.status === "running" && !props.result && (
         <div className="text-xs text-[var(--text-muted)] italic">Running…</div>

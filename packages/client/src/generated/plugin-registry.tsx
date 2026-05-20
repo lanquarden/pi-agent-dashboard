@@ -3,7 +3,8 @@
 import { FlowActivityBadgeClaim, SessionFlowActionsClaim, shouldRenderFlowsSubcard, FlowDashboardClaim, FlowArchitectClaim, FlowYamlPreviewClaim, isFlowYamlPreviewActive } from "/home/lanquarden/hq/repos/pi-agent-dashboard/packages/flows-plugin/src/client/index";
 import { HonchoSettings, HonchoBadge, shouldRenderHonchoMemory, HonchoCardActions, HonchoMapPopover } from "/home/lanquarden/hq/repos/pi-agent-dashboard/packages/honcho-plugin/src/client/index";
 import { JjWorkspaceBadge, isInJjWorkspace, JjActionBar, isInJjRepo, JjInitAffordance, isInGitRepoButNotJj, JjWorkspaceList, JjWorkspaceView, JjPluginSettings } from "/home/lanquarden/hq/repos/pi-agent-dashboard/packages/jj-plugin/src/client/index";
-import { PiDevWorktreesBadge, hasPiDevWorktrees } from "/home/lanquarden/hq/repos/pi-agent-dashboard/packages/pi-dev-worktrees-plugin/src/client/index";
+import "/home/lanquarden/hq/repos/pi-agent-dashboard/packages/pi-dev-worktrees-plugin/src/client/index"; // side-effects
+import { PiDevWorktreesBadge, hasPiDevWorktrees, EnhancedBashToolRenderer } from "/home/lanquarden/hq/repos/pi-agent-dashboard/packages/pi-dev-worktrees-plugin/src/client/index";
 import { PiWorktreesBadge, hasPiWorktrees } from "/home/lanquarden/hq/repos/pi-agent-dashboard/packages/pi-worktrees-plugin/src/client/index";
 import { BuiltInRolesSettings } from "/home/lanquarden/hq/repos/pi-agent-dashboard/packages/roles-plugin/src/index";
 import { FlowsAnthropicBridgeSettings } from "/home/lanquarden/hq/repos/pi-agent-dashboard/packages/flows-anthropic-bridge-plugin/src/client";
@@ -243,5 +244,8 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
     ],
   },
 ];
+
+import { registerToolRenderer } from "../components/tool-renderers/registry.js";
+registerToolRenderer("bash", EnhancedBashToolRenderer);
 
 export const PLUGIN_REGISTRY_HASH = "f60b291fa44e580e10e96ef6427d4dd1141a180897ba3724aa55409b44cb0903";

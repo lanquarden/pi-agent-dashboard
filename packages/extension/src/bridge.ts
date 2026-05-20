@@ -1110,7 +1110,7 @@ function initBridge(pi: ExtensionAPI) {
             sessionId,
             event: { eventType, timestamp: Date.now(), data: eventData },
           });
-        } catch { /* forwarding failure must never break the original emit */ }
+        } catch (err) { console.error("[bridge] event_forward send error:", err); }
       }
       origEventsEmit!(channel, data);
     };

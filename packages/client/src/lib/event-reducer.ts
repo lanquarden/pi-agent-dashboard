@@ -157,6 +157,13 @@ export interface SessionState {
    * See change: fix-streaming-text-vs-interactive-ui-order.
    */
   streamingTextFlushed?: boolean;
+  /**
+   * Buffered plugin enrichments that arrived before their target tool row
+   * existed (event_forward with toolCallId arrives during tool_call, before
+   * tool_execution_start creates the row). Applied when the row appears.
+   * Key: toolCallId, Value: Map<eventType, enrichment data>.
+   */
+  pendingEnrichments: Map<string, Map<string, unknown>>;
 }
 
 /**
@@ -202,6 +209,7 @@ export function createInitialState(): SessionState {
     hasFileChanges: false,
     subagents: new Map(),
     turnCount: 0,
+    pendingEnrichments: new Map(),
   };
 }
 
@@ -1049,6 +1057,18 @@ export function reduceEvent(state: SessionState, event: DashboardEvent): Session
       }
 
       // Add tool message immediately (visible while running)
+      // Apply any buffered plugin enrichments that arrived before this row.
+      let toolArgs = args;
+      if (next.pendingEnrichments.has(toolCallId)) {
+        const pending = next.pendingEnrichments.get(toolCallId)!;
+        const pluginData: Record<string, unknown> = {};
+        for (const [eventType, enrichment] of pending) {
+          pluginData[eventType] = enrichment;
+        }
+        toolArgs = { ...args, _pluginData: pluginData };
+        next.pendingEnrichments = new Map(next.pendingEnrichments);
+        next.pendingEnrichments.delete(toolCallId);
+      }
       next.messages = [
         ...next.messages,
         {
@@ -1057,7 +1077,7 @@ export function reduceEvent(state: SessionState, event: DashboardEvent): Session
           content: toolName,
           toolName,
           toolCallId,
-          args,
+          args: toolArgs,
           toolStatus: "running",
           timestamp: event.timestamp,
           startedAt: event.timestamp,
@@ -1358,7 +1378,8 @@ export function reduceEvent(state: SessionState, event: DashboardEvent): Session
       // can annotate the same tool row independently. Plugin tool renderers
       // read their data via `args._pluginData?.['my-event-type']`.
       if (data && typeof (data as any).toolCallId === "string") {
-        const { toolCallId, ...enrichment } = data as Record<string, unknown>;
+        const { toolCallId: rawTcId, ...enrichment } = data as Record<string, unknown>;
+        const toolCallId = rawTcId as string;
         const idx = next.messages.findLastIndex(
           (m) => m.role === "toolResult" && m.toolCallId === toolCallId,
         );
@@ -1375,6 +1396,21 @@ export function reduceEvent(state: SessionState, event: DashboardEvent): Session
           };
           break;
         }
+        // Tool row doesn't exist yet (event_forward arrived before
+        // tool_execution_start). Buffer and apply when the row appears.
+        // Cap at 20 entries to prevent unbounded growth from buggy plugins
+        // emitting events with toolCallIds that never match a real tool call.
+        next.pendingEnrichments = new Map(next.pendingEnrichments);
+        if (!next.pendingEnrichments.has(toolCallId)) {
+          if (next.pendingEnrichments.size >= 20) {
+            // Evict oldest entry (first key in insertion order)
+            const oldest = next.pendingEnrichments.keys().next().value;
+            if (oldest !== undefined) next.pendingEnrichments.delete(oldest);
+          }
+          next.pendingEnrichments.set(toolCallId, new Map());
+        }
+        next.pendingEnrichments.get(toolCallId)!.set(event.eventType, enrichment);
+        break;
       }
 
       // Flow / architect events flow through the plugin's own reducer
