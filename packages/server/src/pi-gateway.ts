@@ -358,9 +358,6 @@ export function createPiGateway(
             }
 
             // Notify listeners
-            if (msg.type === "event_forward") {
-              console.error(`[gateway] event_forward: session=${(msg as any).sessionId} eventType=${(msg as any).event?.eventType}`);
-            }
             const eventSessionId = "sessionId" in msg ? (msg as any).sessionId : undefined;
             onEvent?.(eventSessionId ?? currentSessionId ?? "", msg);
           } catch {
