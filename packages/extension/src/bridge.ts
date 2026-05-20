@@ -1110,13 +1110,11 @@ function initBridge(pi: ExtensionAPI) {
             sessionId,
             event: { eventType, timestamp: Date.now(), data: eventData },
           });
-        } catch (err) { console.error("[bridge] event_forward send error:", err); }
+        } catch { /* forwarding failure must never break the original emit */ }
       }
       origEventsEmit!(channel, data);
     };
   }
-
-
 
   pi.on("session_start", safe(async (_event: any, ctx: any) => {
 
@@ -1355,26 +1353,14 @@ function initBridge(pi: ExtensionAPI) {
         }).then(decodeMultiselectAnswer);
 
       // Notify is fire-and-forget: call original + forward to dashboard
-      (ctx.ui as any).notify = (
-        message: string,
-        levelOrOpts?: string | { toolCallId?: string; level?: string; method?: string; props?: Record<string, unknown> },
-      ) => {
-        const level =
-          typeof levelOrOpts === "string" ? levelOrOpts : (levelOrOpts?.level ?? undefined);
-        const toolCallId =
-          typeof levelOrOpts === "object" ? levelOrOpts?.toolCallId : undefined;
-        const method =
-          (typeof levelOrOpts === "object" ? levelOrOpts?.method : undefined) ?? "notify";
-        const extraProps =
-          typeof levelOrOpts === "object" ? (levelOrOpts?.props ?? {}) : {};
-
+      (ctx.ui as any).notify = (message: string, level?: string) => {
         originalNotify?.(message, level);
         connection.send({
           type: "prompt_request" as any,
           sessionId,
           promptId: crypto.randomUUID(),
-          prompt: { question: message, type: method, metadata: buildMeta({ toolCallId }) },
-          component: { type: method, props: { message, level, ...extraProps } },
+          prompt: { question: message, type: "notify" },
+          component: { type: "notify", props: { message, level } },
           placement: "inline",
         });
       };
