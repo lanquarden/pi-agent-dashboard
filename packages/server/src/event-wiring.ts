@@ -162,11 +162,15 @@ export function wireEvents(deps: EventWiringDeps): void {
       // See change: openspec-directory-hint.
       if (msg.event.eventType === "openspec:directory_hint") {
         const data = (msg.event.data ?? {}) as { path?: unknown };
+        console.log(`[openspec:directory_hint] received sessionId=${sessionId} path=${JSON.stringify(data.path)}`);
         if (typeof data.path === "string" && data.path.length > 0) {
           const hintedPath = data.path;
           directoryService.refreshOpenSpec(hintedPath).then((openspecData) => {
+            console.log(`[openspec:directory_hint] poll done path=${hintedPath} changes=${openspecData.changes.length} initialized=${openspecData.initialized}`);
             browserGateway.broadcastToAll({ type: "openspec_update", cwd: hintedPath, data: openspecData } as any);
-          }).catch(() => { /* poll failure is non-fatal */ });
+          }).catch((err) => {
+            console.error(`[openspec:directory_hint] poll failed path=${hintedPath}`, err);
+          });
           sessionManager.update(sessionId, { openspecCwd: hintedPath });
           if (!replayingSessions.has(sessionId)) {
             browserGateway.broadcastSessionUpdated(sessionId, { openspecCwd: hintedPath });
