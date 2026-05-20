@@ -8,6 +8,8 @@
 
 | File | Purpose |
 |------|---------|
+| `packages/dashboard-plugin-runtime/src/index.ts` | Barrel export. Re-exports `registerInteractiveRenderer`, `InteractiveRenderer`, `InteractiveRendererProps` from client interactive-renderer registry — plugin-card-replacement primitive. See change: bash-dispatch-chips. |
+| `packages/pi-dev-worktrees-plugin/src/client/BashDispatchRenderer.tsx` | In-flight replacement card for bash tool card. Reads `BashDispatchProps` from `params._promptBusComponent.props`; renders command + RTK/routing chips while `status === "pending"`; returns null on resolve. Registered via `registerInteractiveRenderer("bash-dispatch", ...)`. See change: bash-dispatch-chips. |
 | `packages/dashboard-plugin-runtime/src/slot-registry.ts` | `createSlotRegistry()` — typed `Map<SlotId, ClaimEntry[]>` pre-sorted by `(priority, pluginId)`. Filter helpers: `forSession`, `forFolder`, `forCommand`, `forTab`, `forToolName`. `ClaimEntry.shouldRender?: (props) => boolean` plus `forSessionRendered(claims, session)` apply predicate AND shouldRender. See change: auto-hide-empty-session-subcards. `ClaimEntry<S extends SlotId>` generic; `predicate?`/`shouldRender?` method-shorthand (bivariant). See change: slot-generic-claim-entry. Adds `setEnabledSet(ids: Set<string>)` + internal enabled-filter in `getClaims`/`getAllClaims` so disabled plugins contribute zero claims at runtime. Adds `getAllPluginsForActivationUi()` returning every registered plugin (enabled or not) for `PluginsSection` list. Driven from client by `usePluginEnabledSet`. See change: add-plugin-activation-ui. |
 | `packages/dashboard-plugin-runtime/src/manifest-validator.ts` | Hand-rolled manifest validator. Throws `ManifestValidationError` with `pluginId` + `reason`. No Zod dep. Validates optional `requires` shape: `piExtensions`/`binaries`/`services` each must be `string[]` when present. See change: add-plugin-activation-ui. |
 | `packages/dashboard-plugin-runtime/src/plugin-context.tsx` | `PluginContextProvider`, `CurrentPluginLayer`, `usePluginConfig<T>()`, `useAllSessions`, `useSessionState`, `usePluginLogger`, `usePluginSend`, `usePluginRouter`, `useSlotRegistry`, `applyPluginConfigUpdate`. Per-plugin context layer scopes hooks to contributing plugin's id. |
@@ -45,3 +47,14 @@
 | `packages/shared/src/dashboard-plugin/ui-primitives.ts` | Defines `UI_PRIMITIVE_KEYS` + `UiPrimitiveMap` + per-primitive prop interfaces (`UiAgentCardProps`, `UiMarkdownContentProps`, `UiConfirmDialogProps`, `UiDialogPortalProps`, `UiSearchableSelectDialogProps`, `UiZoomControlsProps`, format helpers). Adds `modelSelector: "ui:model-selector"` key + `UiModelSelectorProps {current?, models?, onSelect(modelLabel)}`; imports `ModelInfo` from `../types.js`. See change: add-ui-model-selector-primitive. |
 | `docs/plugin-claim-gates.md` | `predicate` vs. `shouldRender` contract for plugin claims. See change: auto-hide-empty-session-subcards. |
 | **Moved to flows-plugin** | `FlowDashboard.tsx` → `packages/flows-plugin/src/client/FlowDashboard.tsx` (sticky flow card grid above ChatView). `FlowAgentCard.tsx` (status/tools/tokens). `FlowAgentDetail.tsx` (full content-area). `FlowSummary.tsx` (post-completion summary). `FlowActivityBadge.tsx` (session card badge). `FlowLaunchDialog.tsx` (task input). `SessionFlowActions.tsx` (searchable picker). `FlowGraph.tsx`, `FlowArchitect.tsx`, `FlowTabBar.tsx`. All moved via `git mv` (history preserved). Shell still imports them directly via `@blackbelt-technology/pi-dashboard-flows-plugin/client` — JSX-to-slot-consumer migration deferred. See change: extract-flows-as-plugin. |
+
+
+## Pattern: plugin-card-replacement
+
+Plugins replace a built-in tool card for the duration of a tool call using three parts:
+
+1. **Extension side**: emit `ctx.ui.notify(message, { toolCallId, method: "<custom>", props: <payload> })` from `tool_call` handler. Bridge forwards as `prompt_request` with `prompt.type = method` and `metadata.toolCallId`.
+2. **Plugin runtime**: call `registerInteractiveRenderer("<custom>", MyRenderer)` at module load. Function re-exported from `@blackbelt-technology/dashboard-plugin-runtime`.
+3. **Suppression**: `findActiveInteractiveToolResultIds` hides the bare bash tool card while the paired `interactiveUi` row is `pending`. Auto-resolves when tool result arrives — no explicit dismiss needed.
+
+See `openspec/changes/bash-dispatch-chips/` for the canonical example (`bash-dispatch` method, `BashDispatchRenderer`).

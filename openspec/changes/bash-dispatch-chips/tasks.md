@@ -55,11 +55,11 @@ Handoff spec: `specs/04-companion-pi-dev-worktrees.md`
 
 Implementation is in the `pi-dev-worktrees` repo. Tasks here are coordination checkpoints:
 
-- [ ] 4.1 Confirm `tool_execution_start` hook available in pi-dev-worktrees extension API
-- [ ] 4.2 Implement in pi-dev-worktrees: capture `llmCommand` + `toolCallId` in `tool_execution_start`
-- [ ] 4.3 Implement in pi-dev-worktrees: emit `ctx.ui.notify(llmCommand, { toolCallId, method: "bash-dispatch", props: BashDispatchProps })` in `tool_call` handler
+- [x] 4.1 Confirm `tool_execution_start` hook available in pi-dev-worktrees extension API
+- [x] 4.2 Implement in pi-dev-worktrees: capture `llmCommand` + `toolCallId` in `tool_execution_start`
+- [x] 4.3 Implement in pi-dev-worktrees: emit `ctx.ui.notify(llmCommand, { toolCallId, method: "bash-dispatch", props: BashDispatchProps })` in `tool_call` handler
 - [ ] 4.4 Integration test: end-to-end emission arrives at dashboard as `prompt_request` with correct `prompt.type` and `component.props`
 
 ## 5. Docs
 
-- [ ] 5.1 Add row to `docs/file-index-plugins.md` for `BashDispatchRenderer.tsx` and document the `plugin-card-replacement` pattern (emit `prompt_request` with `metadata.toolCallId` + `registerInteractiveRenderer`) as a supported plugin primitive
+- [x] 5.1 Add row to `docs/file-index-plugins.md` for `BashDispatchRenderer.tsx` and document the `plugin-card-replacement` pattern (emit `prompt_request` with `metadata.toolCallId` + `registerInteractiveRenderer`) as a supported plugin primitive
