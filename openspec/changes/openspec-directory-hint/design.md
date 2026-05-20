@@ -1,46 +1,54 @@
 ## Context
 
-The bridge auto-forwards all `pi.events.emit(...)` calls as `event_forward` messages to the server. The `event-wiring.ts` `event_forward` handler dispatches on `eventType`. Phase 1 (already implemented) added the `openspec:directory_hint` handler that calls `directoryService.refreshOpenSpec(path)` and returns early without storing the event.
+The bridge auto-forwards all `pi.events.emit(...)` calls as `event_forward` messages to the server. The `event-wiring.ts` handler dispatches on `eventType`. Adding plugin-specific names (e.g. `pi-dev-worktrees:workspace-switched`) would couple the core server to a specific extension — wrong layer. The `openspec:` prefix scopes the contract to the OpenSpec feature without naming the caller.
 
-Phase 1 was necessary but not sufficient. The client populates the OpenSpec attach dialog and session card by calling `openspecMap.get(session.cwd)`. `openspecMap` is keyed by the directory the server polled. After a hint, the server polls and stores data under the **worktree path** — but `session.cwd` is the main repo root. The keys never match so the attach dialog shows no changes.
+Investigation revealed three bugs that each needed fixing independently:
 
-The fix is to record the hinted path as `session.openspecCwd` so the client can resolve `openspecMap.get(session.openspecCwd ?? session.cwd)` instead.
+1. `refreshOpenSpec` was fire-and-forget — polled and cached but never called `broadcastToAll` so `openspecMap` on the client never received the worktree entry.
+2. All client OpenSpec map lookups used `session.cwd`, which never matches the worktree path stored in `openspecMap`.
+3. `computeKnownDirectories()` only iterated `session.cwd` — the worktree path was polled once then dropped from subsequent 30s ticks.
+
+The actual attach dialog source is `SessionList.tsx` (sidebar cards), not `App.tsx` content pane — both needed fixing but `SessionList.tsx` was the critical path.
 
 ## Goals / Non-Goals
 
 **Goals:**
-- Store `openspecCwd` on `DashboardSession` when a hint is received, broadcast to browsers
-- Client uses `openspecCwd ?? cwd` as the openspecMap key in all relevant lookups
-- When worktree is deactivated (hint with the original cwd, or extension off event) clear `openspecCwd` so fallback to `session.cwd` resumes
+- Handle `openspec:directory_hint` in `event-wiring.ts` generically — no knowledge of which plugin emitted it
+- `refreshOpenSpec` result broadcast to all browsers via `broadcastToAll({ openspec_update })`
+- Store `openspecCwd` on session and broadcast `session_updated` so client has the key
+- `computeKnownDirectories()` includes `session.openspecCwd` for ongoing periodic polling
+- All client openspecMap lookups use `session.openspecCwd ?? session.cwd`
 
 **Non-Goals:**
-- Persisting `openspecCwd` to `.meta.json` — it is transient, re-established on next hint
-- Changing how `openspec_update` is broadcast (still keyed by polled directory — correct)
+- Persisting `openspecCwd` to `.meta.json` — transient, re-established on next hint
+- Clearing `openspecCwd` on worktree-off — field persists; points to directory that returns empty data once removed; subcard collapses naturally
 - Any UI changes beyond using the right map key
 
 ## Decisions
 
-### 1. `openspecCwd` field on `DashboardSession`
-**Decision**: Add `openspecCwd?: string` to `DashboardSession` in `types.ts`. Absent means use `session.cwd` (backward-compatible fallback for all existing sessions and for sessions where no hint has been received).
+### 1. Event type name: `openspec:directory_hint`
+**Decision**: Use `openspec:directory_hint` as the `eventType`. Colon-namespaced per existing convention. `openspec:` prefix scopes it to the OpenSpec feature; `directory_hint` signals it is advisory.
 
-**Rationale**: Minimal protocol change. One optional string field. The client only needs to know one thing: "which key should I use for the openspecMap lookup for this session?" The field answers that directly.
+### 2. Early-return, not stored
+**Decision**: Return early from the `event_forward` handler after processing — event NOT inserted into session event store, NOT broadcast as a raw event. Only the derived `session_updated { openspecCwd }` and `openspec_update` are sent.
 
-### 2. Server sets `openspecCwd` on hint receipt
-**Decision**: In `event-wiring.ts`, after `directoryService.refreshOpenSpec(path)`, call `sessionManager.update(sessionId, { openspecCwd: path })` and `browserGateway.broadcastSessionUpdated(sessionId, { openspecCwd: path })`.
+### 3. Broadcast poll result immediately
+**Decision**: `refreshOpenSpec(path)` returns `Promise<OpenSpecData>`. Chain `.then((data) => browserGateway.broadcastToAll({ type: "openspec_update", cwd: path, data }))`. Without this the client's `openspecMap` never receives the worktree entry regardless of the session field fix.
 
-**Rationale**: The server already has `sessionId` (from the `event_forward` envelope) and `path` (from the payload). Storing it on the session is the natural place — it follows the same pattern as `openspecPhase`, `openspecChange`, etc.
+### 4. `openspecCwd` field on `DashboardSession`
+**Decision**: Add `openspecCwd?: string` to `DashboardSession`. Absent → use `session.cwd` (backward-compatible). Set by server on hint receipt; broadcast via `session_updated`.
 
-### 3. Client lookup: `session.openspecCwd ?? session.cwd`
-**Decision**: Every place in the client that calls `openspecMap.get(session.cwd)` or `openspecMap.get(selectedCwd)` should instead use `session.openspecCwd ?? session.cwd`. Affected sites: `App.tsx` (two `openspecChanges` props, mobile actions), `SessionCard.tsx` if it reads cwd directly.
+### 5. `computeKnownDirectories` includes `openspecCwd`
+**Decision**: In `directory-service.ts`, when iterating sessions to build the known directories set, also add `session.openspecCwd` when present. Without this the worktree path is polled once then silently dropped from the 30s periodic tick.
 
-**Rationale**: The fallback `?? session.cwd` preserves all existing behaviour for sessions that never receive a hint.
+### 6. `SessionList.tsx` is the critical client fix
+**Decision**: All four openspec props on the sidebar `SessionCard` (`openspecChanges`, `openspecInitialized`, `openspecPending`, `openspecHasDir`) plus both group map props must use `session.openspecCwd ?? session.cwd`. `App.tsx` desktop and mobile paths also fixed for completeness but `SessionList.tsx` is the attach dialog source.
 
-### 4. Clearing `openspecCwd`
-**Decision**: Not implemented in this change. The field persists for the session lifetime. If the worktree is deactivated, the field stays set but points to a directory that returns `{ initialized: false, changes: [] }` once the worktree is removed. The OpenSpec subcard collapses naturally. A future change can emit a hint back to the original cwd on worktree-off if needed.
-
-**Rationale**: YAGNI. The deactivation case does not cause UI breakage — it just shows no changes, which is correct. Adding a clear mechanism now adds complexity for no observable benefit in the common workflow.
+### 7. Clearing `openspecCwd`
+**Decision**: Not implemented. Field persists for session lifetime. Deactivated worktree → directory returns empty data → subcard collapses naturally. No UI breakage.
 
 ## Risks / Trade-offs
 
-- **[Stale openspecCwd after server restart]** `openspecCwd` is not persisted, so after a server restart the field is gone. The session will fall back to `session.cwd`. The worktree extension re-emits the hint on the next `before_agent_start` or similar. Mitigation: acceptable transient gap; the session card just shows no changes until next hint.
-- **[Multiple sessions same cwd, different worktrees]** Two sessions both in the same main repo cwd but with different active worktrees each get their own `openspecCwd` — correct, since `sessionManager.update` is per-session-id.
+- **[Stale openspecCwd after server restart]** Not persisted — lost on restart. Session falls back to `cwd` until next `/worktree` command re-emits the hint. Acceptable transient gap.
+- **[Multiple sessions, same cwd, different worktrees]** Each session gets its own `openspecCwd` — correct, `sessionManager.update` is per session-id.
+- **[Spam]** Rapid hint emission bounded by `maxConcurrentSpawns` semaphore inside `pollOne`. No additional rate-limiting needed.
