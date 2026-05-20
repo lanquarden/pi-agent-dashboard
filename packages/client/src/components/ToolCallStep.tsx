@@ -44,38 +44,6 @@ function getSummary(toolName: string, args?: Record<string, unknown>): string {
   return toolName;
 }
 
-/** Inline chips for bash dispatch metadata (routing + RTK) */
-function BashDispatchChips({ args }: { args?: Record<string, unknown> }) {
-  const dispatch = (args as any)?._pluginData?.["pi-dev-worktrees:bash-dispatch"] as
-    | { rtkRewritten?: boolean; routing?: string; hasDevcontainer?: boolean }
-    | undefined;
-  if (!dispatch) return null;
-  return (
-    <span className="flex items-center gap-1 shrink-0 ml-1">
-      {dispatch.rtkRewritten && (
-        <span className="inline-flex items-center px-1 py-[0.5px] rounded text-[9px] font-medium bg-amber-400/15 text-amber-400">
-          RTK
-        </span>
-      )}
-      {dispatch.routing === "container" && (
-        <span className="inline-flex items-center px-1 py-[0.5px] rounded text-[9px] font-medium bg-blue-400/15 text-blue-400">
-          DEV
-        </span>
-      )}
-      {dispatch.routing === "host" && dispatch.hasDevcontainer && (
-        <span className="inline-flex items-center px-1 py-[0.5px] rounded text-[9px] font-medium bg-[var(--bg-quaternary)] text-[var(--text-muted)]">
-          HOST
-        </span>
-      )}
-      {dispatch.routing === "error" && (
-        <span className="inline-flex items-center px-1 py-[0.5px] rounded text-[9px] font-medium bg-red-400/15 text-red-400">
-          error
-        </span>
-      )}
-    </span>
-  );
-}
-
 const statusIcons: Record<string, ReactNode> = {
   running: <Icon path={mdiLoading} size={0.55} spin />,
   complete: <Icon path={mdiCheck} size={0.55} />,
@@ -117,7 +85,6 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
             : statusIcons[status]}
         </span>
         <span className="truncate">{getSummary(toolName, args)}</span>
-        {toolName === "bash" && <BashDispatchChips args={args} />}
         <ElapsedBadge startedAt={startedAt} duration={duration} />
         {status === "running" && onAbort && stopState === "idle" && (
           <span
