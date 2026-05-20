@@ -940,7 +940,7 @@ export default function App() {
         onResume={selectedId ? (mode) => handleResumeSession(selectedId, mode) : undefined}
         mobileActions={isMobile ? {
           editors: selectedCwd ? editorMap.get(selectedCwd) : undefined,
-          openspecChanges: selectedCwd ? openspecMap.get(selectedCwd)?.changes : undefined,
+          openspecChanges: selectedCwd ? openspecMap.get(selectedSession?.openspecCwd ?? selectedCwd)?.changes : undefined,
           onHide: () => handleHideSession(selectedId),
           onUnhide: () => handleUnhideSession(selectedId),
           onResume: (mode) => handleResumeSession(selectedId, mode),
@@ -966,7 +966,7 @@ export default function App() {
         } : undefined}
         commands={selectedCommands}
         onSendPrompt={wrappedHandleSend}
-        openspecChanges={selectedCwd ? openspecMap.get(selectedCwd)?.changes : undefined}
+        openspecChanges={selectedCwd ? openspecMap.get(selectedSession?.openspecCwd ?? selectedCwd)?.changes : undefined}
         onAttachProposal={(changeName) => handleAttachProposal(selectedId, changeName)}
         onDetachProposal={() => handleDetachProposal(selectedId)}
         onReadArtifact={selectedCwd ? (changeName, artifactId) => handleReadArtifact(selectedCwd, changeName, artifactId) : undefined}

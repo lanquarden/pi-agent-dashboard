@@ -156,12 +156,18 @@ export function wireEvents(deps: EventWiringDeps): void {
       // NOT stored in event store, NOT broadcast to browsers.
       // Any extension may emit openspec:directory_hint { path } to request
       // an immediate forced OpenSpec poll for a directory other than
-      // session.cwd (e.g. an activated git worktree).
+      // session.cwd (e.g. an activated git worktree). Also records
+      // openspecCwd on the session so the client resolves the correct
+      // openspecMap entry for attach dialogs and session card display.
       // See change: openspec-directory-hint.
       if (msg.event.eventType === "openspec:directory_hint") {
         const data = (msg.event.data ?? {}) as { path?: unknown };
         if (typeof data.path === "string" && data.path.length > 0) {
           directoryService.refreshOpenSpec(data.path);
+          sessionManager.update(sessionId, { openspecCwd: data.path });
+          if (!replayingSessions.has(sessionId)) {
+            browserGateway.broadcastSessionUpdated(sessionId, { openspecCwd: data.path });
+          }
         }
         return;
       }

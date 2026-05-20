@@ -1,55 +1,46 @@
 ## Context
 
-The dashboard server builds its OpenSpec poll set (`computeKnownDirectories`) from two sources: pinned directories (user-configured) and `session.cwd` values (registered when a bridge connects). This is sufficient when the session's working directory matches where `openspec/` lives.
+The bridge auto-forwards all `pi.events.emit(...)` calls as `event_forward` messages to the server. The `event-wiring.ts` `event_forward` handler dispatches on `eventType`. Phase 1 (already implemented) added the `openspec:directory_hint` handler that calls `directoryService.refreshOpenSpec(path)` and returns early without storing the event.
 
-When a bridge extension like `pi-dev-worktrees` activates a git worktree mid-session, the session `cwd` stays at the main repo root but all file activity moves to the worktree path. The server never learns about the worktree, so no OpenSpec subcard appears for it.
+Phase 1 was necessary but not sufficient. The client populates the OpenSpec attach dialog and session card by calling `openspecMap.get(session.cwd)`. `openspecMap` is keyed by the directory the server polled. After a hint, the server polls and stores data under the **worktree path** — but `session.cwd` is the main repo root. The keys never match so the attach dialog shows no changes.
 
-The bridge auto-forwards all `pi.events.emit(...)` calls as `event_forward` messages to the server. The `event-wiring.ts` `event_forward` handler already dispatches on `eventType` for a handful of pi-internal events (`queue_state`, `tool_execution_start`, `agent_end`, `turn_end`). These are all pi core events. Adding plugin-specific event names (e.g. `pi-dev-worktrees:workspace-switched`) there would couple the core server to a specific plugin — wrong layer.
-
-The right contract is a generic, openspec-scoped event type: `openspec:directory_hint`. Any extension can emit it. The server reacts by polling that path. The naming (`openspec:` prefix) scopes it to the OpenSpec feature without naming the caller.
+The fix is to record the hinted path as `session.openspecCwd` so the client can resolve `openspecMap.get(session.openspecCwd ?? session.cwd)` instead.
 
 ## Goals / Non-Goals
 
 **Goals:**
-- Define `openspec:directory_hint` as the canonical contract for extensions to request OpenSpec polling of a directory other than `session.cwd`
-- Handle it in `event-wiring.ts` generically — no knowledge of which plugin emitted it
-- Trigger a forced (mtime-gate-bypassing) poll immediately on receipt
-- Add the hinted path to the ongoing poll set so it continues to be polled
+- Store `openspecCwd` on `DashboardSession` when a hint is received, broadcast to browsers
+- Client uses `openspecCwd ?? cwd` as the openspecMap key in all relevant lookups
+- When worktree is deactivated (hint with the original cwd, or extension off event) clear `openspecCwd` so fallback to `session.cwd` resumes
 
 **Non-Goals:**
-- Changing how `session.cwd` is registered (that path is correct for normal sessions)
-- Any UI changes — the existing OpenSpec subcard renders automatically once the server broadcasts `openspec_update` for the new path
-- Validation of the hinted path beyond what `refreshOpenSpec` already does (missing dir → no-op)
-- Persisting hinted directories across server restarts (they re-hint on next session connect)
+- Persisting `openspecCwd` to `.meta.json` — it is transient, re-established on next hint
+- Changing how `openspec_update` is broadcast (still keyed by polled directory — correct)
+- Any UI changes beyond using the right map key
 
 ## Decisions
 
-### 1. Event type name: `openspec:directory_hint`
-**Decision**: Use `openspec:directory_hint` as the `eventType` in the forwarded event.
+### 1. `openspecCwd` field on `DashboardSession`
+**Decision**: Add `openspecCwd?: string` to `DashboardSession` in `types.ts`. Absent means use `session.cwd` (backward-compatible fallback for all existing sessions and for sessions where no hint has been received).
 
-**Rationale**: Colon-namespaced event names are the existing convention in the codebase (`pi-dev-worktrees:workspace-switched`, `pi-dev-worktrees:bash-dispatch`, etc.). The `openspec:` prefix scopes it to the OpenSpec feature. `directory_hint` communicates that it is advisory — the server may already know the directory (no-op) or not (triggers poll). Alternative considered: `directory_hint` bare — rejected because it's too generic and doesn't communicate which server feature handles it.
+**Rationale**: Minimal protocol change. One optional string field. The client only needs to know one thing: "which key should I use for the openspecMap lookup for this session?" The field answers that directly.
 
-### 2. Placement in `event-wiring.ts`
-**Decision**: Add a new `if` block inside the `event_forward` handler, before the main store-insert path (same level as the `queue_state` early-return block).
+### 2. Server sets `openspecCwd` on hint receipt
+**Decision**: In `event-wiring.ts`, after `directoryService.refreshOpenSpec(path)`, call `sessionManager.update(sessionId, { openspecCwd: path })` and `browserGateway.broadcastSessionUpdated(sessionId, { openspecCwd: path })`.
 
-**Rationale**: `queue_state` returns early because it's UI state, not history. `openspec:directory_hint` should also return early — it is a side-effect-only signal, not an event to be stored in the session event store or broadcast to browsers as a raw event. Storing it would pollute the event log with noise.
+**Rationale**: The server already has `sessionId` (from the `event_forward` envelope) and `path` (from the payload). Storing it on the session is the natural place — it follows the same pattern as `openspecPhase`, `openspecChange`, etc.
 
-### 3. Use `refreshOpenSpec` (force mode)
-**Decision**: Call `directoryService.refreshOpenSpec(path)` which bypasses the mtime gate.
+### 3. Client lookup: `session.openspecCwd ?? session.cwd`
+**Decision**: Every place in the client that calls `openspecMap.get(session.cwd)` or `openspecMap.get(selectedCwd)` should instead use `session.openspecCwd ?? session.cwd`. Affected sites: `App.tsx` (two `openspecChanges` props, mobile actions), `SessionCard.tsx` if it reads cwd directly.
 
-**Rationale**: The hint arrives precisely when the user just activated a worktree — the directory is new to the server and the mtime gate would trivially skip it (no cached mtime → would actually run, but force-mode is clearer intent and matches user-initiated refresh semantics). `refreshOpenSpec` also adds the path to the ongoing poll cadence via `onDirectoryAdded` semantics inside `pollOne`.
+**Rationale**: The fallback `?? session.cwd` preserves all existing behaviour for sessions that never receive a hint.
 
-### 4. Path validation
-**Decision**: No validation beyond a truthy string check before calling `refreshOpenSpec`. Let `refreshOpenSpec` / `pollOne` handle missing/invalid paths gracefully (they already do — missing `openspec/` dir → broadcasts `{ initialized: false, pending: false, changes: [] }`).
+### 4. Clearing `openspecCwd`
+**Decision**: Not implemented in this change. The field persists for the session lifetime. If the worktree is deactivated, the field stays set but points to a directory that returns `{ initialized: false, changes: [] }` once the worktree is removed. The OpenSpec subcard collapses naturally. A future change can emit a hint back to the original cwd on worktree-off if needed.
 
-**Rationale**: Keeping the handler thin. Adding `fs.existsSync` here would be redundant with what the poller already does.
-
-### 5. Documentation in `protocol.ts`
-**Decision**: Add a JSDoc comment block in `protocol.ts` documenting `openspec:directory_hint` as a supported `event_forward` `eventType`. No TypeScript type changes needed — `eventType` is already `string`.
-
-**Rationale**: `protocol.ts` is the canonical reference for bridge↔server protocol. Future extension authors need to find this contract somewhere authoritative.
+**Rationale**: YAGNI. The deactivation case does not cause UI breakage — it just shows no changes, which is correct. Adding a clear mechanism now adds complexity for no observable benefit in the common workflow.
 
 ## Risks / Trade-offs
 
-- **[Spam]** A misbehaving extension could emit `openspec:directory_hint` rapidly, causing many forced polls. Mitigation: `refreshOpenSpec` is already bounded by the `maxConcurrentSpawns` semaphore inside `pollOne`, so concurrent polls are capped. Rate-limiting at the event handler level is not needed now.
-- **[Path traversal]** A malicious extension could hint an arbitrary path. Mitigation: the network guard (`localhost-guard.ts`) already gates REST endpoints; the bridge connection itself is trust-gated (only local pi sessions connect to port 9999). No additional guard needed.
+- **[Stale openspecCwd after server restart]** `openspecCwd` is not persisted, so after a server restart the field is gone. The session will fall back to `session.cwd`. The worktree extension re-emits the hint on the next `before_agent_start` or similar. Mitigation: acceptable transient gap; the session card just shows no changes until next hint.
+- **[Multiple sessions same cwd, different worktrees]** Two sessions both in the same main repo cwd but with different active worktrees each get their own `openspecCwd` — correct, since `sessionManager.update` is per-session-id.

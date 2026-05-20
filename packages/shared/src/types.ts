@@ -81,6 +81,14 @@ export interface DashboardSession {
   openspecPhase?: OpenSpecPhase | null;
   openspecChange?: string | null;
   attachedProposal?: string | null;
+  /**
+   * Effective directory for OpenSpec map lookups. Set by the server when a
+   * bridge extension emits `openspec:directory_hint { path }` (e.g. when a
+   * git worktree is activated mid-session). When absent, clients fall back
+   * to `session.cwd`. Transient — not persisted to `.meta.json`.
+   * See change: openspec-directory-hint.
+   */
+  openspecCwd?: string;
   contextTokens?: number | null;
   contextWindow?: number;
   sessionFile?: string;
