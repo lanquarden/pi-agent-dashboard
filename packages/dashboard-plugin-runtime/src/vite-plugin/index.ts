@@ -20,6 +20,7 @@ import crypto from "node:crypto";
 import {
   discoverPlugins,
   clearDiscoveryCache,
+  findInstalledPluginsDir,
   pluginRegistryHash,
 } from "../server/loader.js";
 import { validateManifest } from "../manifest-validator.js";
@@ -44,6 +45,16 @@ interface PluginEntry {
 function loadPluginEntries(repoRoot: string, isProd: boolean): PluginEntry[] {
   clearDiscoveryCache();
   const discovered = discoverPlugins(repoRoot);
+  // Also scan ~/.pi/dashboard/plugins/ (user-installed) — monorepo-id takes precedence.
+  const installedDir = findInstalledPluginsDir();
+  if (installedDir) {
+    const monorepoIds = new Set(discovered.map(p => p.manifest.id));
+    clearDiscoveryCache();
+    for (const p of discoverPlugins()) {
+      if (!monorepoIds.has(p.manifest.id)) discovered.push(p);
+    }
+    clearDiscoveryCache();
+  }
   return discovered
     .filter(p => {
       if (isProd && p.manifest.fixture === true) return false;

@@ -3,11 +3,10 @@
 import { FlowActivityBadgeClaim, SessionFlowActionsClaim, shouldRenderFlowsSubcard, FlowDashboardClaim, FlowArchitectClaim, FlowYamlPreviewClaim, isFlowYamlPreviewActive } from "/home/lanquarden/hq/repos/pi-agent-dashboard/packages/flows-plugin/src/client/index";
 import { HonchoSettings, HonchoBadge, shouldRenderHonchoMemory, HonchoCardActions, HonchoMapPopover } from "/home/lanquarden/hq/repos/pi-agent-dashboard/packages/honcho-plugin/src/client/index";
 import { JjWorkspaceBadge, isInJjWorkspace, JjActionBar, isInJjRepo, JjInitAffordance, isInGitRepoButNotJj, JjWorkspaceList, JjWorkspaceView, JjPluginSettings } from "/home/lanquarden/hq/repos/pi-agent-dashboard/packages/jj-plugin/src/client/index";
-import "/home/lanquarden/hq/repos/pi-agent-dashboard/packages/pi-dev-worktrees-plugin/src/client/index"; // side-effects
-import { PiDevWorktreesBadge, hasPiDevWorktrees, EnhancedBashToolRenderer } from "/home/lanquarden/hq/repos/pi-agent-dashboard/packages/pi-dev-worktrees-plugin/src/client/index";
-import { PiWorktreesBadge, hasPiWorktrees } from "/home/lanquarden/hq/repos/pi-agent-dashboard/packages/pi-worktrees-plugin/src/client/index";
 import { BuiltInRolesSettings } from "/home/lanquarden/hq/repos/pi-agent-dashboard/packages/roles-plugin/src/index";
 import { FlowsAnthropicBridgeSettings } from "/home/lanquarden/hq/repos/pi-agent-dashboard/packages/flows-anthropic-bridge-plugin/src/client";
+import "/home/lanquarden/.pi/dashboard/plugins/pi-dev-worktrees/src/client/index"; // side-effects
+import { PiDevWorktreesBadge, hasPiDevWorktrees, EnhancedBashToolRenderer } from "/home/lanquarden/.pi/dashboard/plugins/pi-dev-worktrees/src/client/index";
 
 import type { PluginManifest } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
 import type { ClaimEntry } from "@blackbelt-technology/dashboard-plugin-runtime";
@@ -159,42 +158,6 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
   {
     manifest: {
-        "id": "pi-dev-worktrees",
-        "displayName": "pi-dev-worktrees Workspace",
-        "priority": 100,
-        "claims": [
-            {
-                "slot": "session-card-badge",
-                "component": "PiDevWorktreesBadge",
-                "predicate": "hasPiDevWorktrees"
-            }
-        ],
-        "client": "./src/client/index.tsx"
-    },
-    claims: [
-      { pluginId: "pi-dev-worktrees", priority: 100, slot: "session-card-badge", Component: PiDevWorktreesBadge, predicate: hasPiDevWorktrees },
-    ],
-  },
-  {
-    manifest: {
-        "id": "pi-worktrees",
-        "displayName": "pi-worktrees Workspace",
-        "priority": 100,
-        "claims": [
-            {
-                "slot": "session-card-badge",
-                "component": "PiWorktreesBadge",
-                "predicate": "hasPiWorktrees"
-            }
-        ],
-        "client": "./src/client/index.tsx"
-    },
-    claims: [
-      { pluginId: "pi-worktrees", priority: 100, slot: "session-card-badge", Component: PiWorktreesBadge, predicate: hasPiWorktrees },
-    ],
-  },
-  {
-    manifest: {
         "id": "roles",
         "displayName": "Roles",
         "priority": 100,
@@ -243,9 +206,27 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
       { pluginId: "flows-anthropic-bridge", priority: 500, slot: "settings-section", tab: "general", Component: FlowsAnthropicBridgeSettings },
     ],
   },
+  {
+    manifest: {
+        "id": "pi-dev-worktrees",
+        "displayName": "pi-dev-worktrees Workspace",
+        "priority": 100,
+        "claims": [
+            {
+                "slot": "session-card-badge",
+                "component": "PiDevWorktreesBadge",
+                "predicate": "hasPiDevWorktrees"
+            }
+        ],
+        "client": "./src/client/index.tsx"
+    },
+    claims: [
+      { pluginId: "pi-dev-worktrees", priority: 100, slot: "session-card-badge", Component: PiDevWorktreesBadge, predicate: hasPiDevWorktrees },
+    ],
+  },
 ];
 
 import { registerToolRenderer } from "../components/tool-renderers/registry.js";
 registerToolRenderer("bash", EnhancedBashToolRenderer);
 
-export const PLUGIN_REGISTRY_HASH = "f60b291fa44e580e10e96ef6427d4dd1141a180897ba3724aa55409b44cb0903";
+export const PLUGIN_REGISTRY_HASH = "56e6c244f09460bd7f3410aaf3bb488b5d3c2282540aa5e68e7591bd4bdb0fff";
