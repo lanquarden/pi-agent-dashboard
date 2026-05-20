@@ -24,7 +24,7 @@ The server SHALL intercept `event_forward` messages where `eventType === "opensp
 - **AND** no error is thrown
 
 ### Requirement: Hinted path included in periodic poll
-`computeKnownDirectories()` in `directory-service.ts` SHALL include `session.openspecCwd` (when set) alongside `session.cwd` for every session. This ensures the worktree path remains in the 30s periodic poll cadence after the initial hint.
+`computeKnownDirectories()` in `directory-service.ts` SHALL include `session.openspecCwd` (when set) alongside `session.cwd` for every session.
 
 #### Scenario: Worktree path polled on subsequent ticks
 - **WHEN** `session.openspecCwd` is set to a worktree path
@@ -36,39 +36,51 @@ The server SHALL intercept `event_forward` messages where `eventType === "opensp
 
 #### Scenario: openspecCwd absent — fallback to cwd
 - **WHEN** a session has no `openspecCwd` field
-- **THEN** the client uses `session.cwd` as the key for `openspecMap` lookups (unchanged behaviour)
+- **THEN** the client uses `session.cwd` as the key for all openspec operations (unchanged behaviour)
 
 #### Scenario: openspecCwd present — used for lookup
 - **WHEN** a session has `openspecCwd` set to a worktree path
 - **THEN** the client uses `session.openspecCwd` as the key for all `openspecMap` lookups for that session
 
-### Requirement: Client uses openspecCwd for openspecMap lookups
-The client SHALL resolve the OpenSpec map key as `session.openspecCwd ?? session.cwd` in all sites that pass openspec data to session card components.
+### Requirement: Client uses openspecCwd for all openspec operations
+The client SHALL resolve the OpenSpec directory as `session.openspecCwd ?? session.cwd` in all sites that interact with openspec data for a session.
 
-Affected files:
-- `packages/client/src/components/SessionList.tsx` — all four openspec props (`openspecChanges`, `openspecInitialized`, `openspecPending`, `openspecHasDir`) and both group map props (`openspecGroups`, `openspecAssignments`)
-- `packages/client/src/App.tsx` — desktop `openspecChanges` prop and mobile actions `openspecChanges`
+Affected operations:
+- `openspecMap` lookups for all props (`openspecChanges`, `openspecInitialized`, `openspecPending`, `openspecHasDir`, `openspecGroups`, `openspecAssignments`) in `SessionList.tsx` and `App.tsx`
+- `onReadArtifact` cwd argument in `SessionList.tsx` and `App.tsx`
+- `onBulkArchive` cwd argument in `SessionList.tsx`
 
 #### Scenario: Sidebar attach dialog shows worktree changes
 - **WHEN** a session has `openspecCwd` pointing to a worktree path
 - **AND** `openspecMap` has an entry for that path with changes
 - **THEN** the sidebar attach dialog shows those changes
 
-#### Scenario: Sidebar openspec subcard visibility uses openspecCwd
-- **WHEN** rendering the sidebar `SessionCard` for a session with `openspecCwd`
-- **THEN** `openspecInitialized`, `openspecPending`, `openspecHasDir` are resolved from `openspecMap.get(session.openspecCwd)`
+#### Scenario: Artifact viewer loads worktree files
+- **WHEN** a user clicks an artifact letter (P/D/S/T) on a session with `openspecCwd`
+- **THEN** `onReadArtifact` is called with `session.openspecCwd` as the cwd
+- **AND** the artifact preview loads successfully
 
-#### Scenario: Desktop content pane openspecChanges uses openspecCwd
-- **WHEN** rendering the desktop content pane for a session with `openspecCwd`
-- **THEN** `openspecChanges` is resolved from `openspecMap.get(session.openspecCwd)`
+#### Scenario: Sessions without openspecCwd unaffected
+- **WHEN** a session has no `openspecCwd` field
+- **THEN** all operations use `session.cwd` — behaviour identical to before this change
 
-#### Scenario: Mobile actions openspecChanges uses openspecCwd
-- **WHEN** rendering mobile actions for a session with `openspecCwd`
-- **THEN** `openspecChanges` is resolved from `openspecMap.get(session.openspecCwd)`
+### Requirement: /api/file allows openspecCwd paths
+`/api/file` in `file-routes.ts` SHALL allow requests where `cwd` matches any `session.openspecCwd` value (in addition to `session.cwd` and pinned directories). Requests with `cwd` matching none of these SHALL still be rejected 403.
+
+#### Scenario: Artifact file read succeeds for worktree cwd
+- **WHEN** a browser requests `/api/file?cwd=<worktreePath>&path=openspec/changes/...`
+- **AND** a session exists with `openspecCwd === worktreePath`
+- **THEN** the server returns 200 with the file content
+
+#### Scenario: Unknown cwd still rejected
+- **WHEN** a browser requests `/api/file?cwd=<arbitraryPath>&path=...`
+- **AND** no session has `cwd` or `openspecCwd` matching `<arbitraryPath>`
+- **AND** `<arbitraryPath>` is not a pinned directory
+- **THEN** the server returns 403
 
 ### Requirement: openspec:directory_hint is documented in protocol.ts
-`packages/shared/src/protocol.ts` SHALL include a JSDoc comment documenting `openspec:directory_hint` as a supported `event_forward` `eventType`, its payload `{ path: string }`, and the full server response (poll + broadcast + `openspecCwd` update).
+`packages/shared/src/protocol.ts` SHALL include `OpenSpecDirectoryHintEventData` interface and JSDoc documenting the full server response: poll, `broadcastToAll`, and `openspecCwd` update.
 
 #### Scenario: Protocol documentation present
 - **WHEN** a developer reads `protocol.ts`
-- **THEN** they find `OpenSpecDirectoryHintEventData` interface and JSDoc covering payload shape, server actions, and the `openspecCwd` side-effect
+- **THEN** they find `OpenSpecDirectoryHintEventData` with payload shape, all server actions, and a usage example
