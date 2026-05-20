@@ -163,10 +163,13 @@ export function wireEvents(deps: EventWiringDeps): void {
       if (msg.event.eventType === "openspec:directory_hint") {
         const data = (msg.event.data ?? {}) as { path?: unknown };
         if (typeof data.path === "string" && data.path.length > 0) {
-          directoryService.refreshOpenSpec(data.path);
-          sessionManager.update(sessionId, { openspecCwd: data.path });
+          const hintedPath = data.path;
+          directoryService.refreshOpenSpec(hintedPath).then((openspecData) => {
+            browserGateway.broadcastToAll({ type: "openspec_update", cwd: hintedPath, data: openspecData } as any);
+          }).catch(() => { /* poll failure is non-fatal */ });
+          sessionManager.update(sessionId, { openspecCwd: hintedPath });
           if (!replayingSessions.has(sessionId)) {
-            browserGateway.broadcastSessionUpdated(sessionId, { openspecCwd: data.path });
+            browserGateway.broadcastSessionUpdated(sessionId, { openspecCwd: hintedPath });
           }
         }
         return;
