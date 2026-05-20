@@ -1351,6 +1351,25 @@ export function reduceEvent(state: SessionState, event: DashboardEvent): Session
     }
 
     default: {
+      // pi-dev-worktrees:bash-dispatch — patch dispatch metadata onto the
+      // matching toolResult row so the enhanced bash renderer can show chips.
+      if (event.eventType === "pi-dev-worktrees:bash-dispatch") {
+        const { toolCallId, ...dispatchData } = (data ?? {}) as Record<string, unknown>;
+        if (typeof toolCallId === "string") {
+          const idx = next.messages.findLastIndex(
+            (m) => m.role === "toolResult" && m.toolCallId === toolCallId,
+          );
+          if (idx >= 0) {
+            next.messages = [...next.messages];
+            next.messages[idx] = {
+              ...next.messages[idx],
+              args: { ...next.messages[idx].args, _dispatch: dispatchData },
+            };
+            break;
+          }
+        }
+      }
+
       // Flow / architect events flow through the plugin's own reducer
       // via useSessionEvents in flows-plugin. The shell ignores them
       // here; the plugin runtime mirrors msg.event into the per-session

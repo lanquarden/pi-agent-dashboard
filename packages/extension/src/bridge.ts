@@ -1116,28 +1116,7 @@ function initBridge(pi: ExtensionAPI) {
     };
   }
 
-  // Allow extensions to emit prompt_request messages via pi.events.emit.
-  // This is the general-purpose path for extensions that can't access
-  // the bridge's patched ctx.ui methods (each extension gets its own ctx).
-  if (pi.events) {
-    pi.events.on("dashboard:notify", (data: any) => {
-      if (!sessionReady || !isActive()) return;
-      const message = typeof data?.message === "string" ? data.message : "";
-      const toolCallId = data?.toolCallId;
-      const method = data?.method ?? "notify";
-      const level = data?.level;
-      const extraProps = data?.props ?? {};
 
-      connection.send({
-        type: "prompt_request" as any,
-        sessionId,
-        promptId: crypto.randomUUID(),
-        prompt: { question: message, type: method, metadata: toolCallId ? { toolCallId } : undefined },
-        component: { type: method, props: { message, level, ...extraProps } },
-        placement: "inline",
-      });
-    });
-  }
 
   pi.on("session_start", safe(async (_event: any, ctx: any) => {
 

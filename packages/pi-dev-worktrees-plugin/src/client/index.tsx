@@ -3,11 +3,15 @@
  *
  * Component slots claimed by `pi-dashboard-plugin` in package.json:
  *   - session-card-badge → PiDevWorktreesBadge  (predicate: hasPiDevWorktrees)
+ *
+ * Registers a custom tool renderer for "bash" that overlays dispatch chips
+ * when _dispatch metadata is present on the tool args (patched in by event
+ * reducer from pi-dev-worktrees:bash-dispatch events).
  */
-import { registerInteractiveRenderer } from "@blackbelt-technology/dashboard-plugin-runtime";
-import { BashDispatchRenderer } from "./BashDispatchRenderer.js";
+import { registerToolRenderer } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { EnhancedBashToolRenderer } from "./EnhancedBashToolRenderer.js";
 
-registerInteractiveRenderer("bash-dispatch", BashDispatchRenderer);
+registerToolRenderer("bash", EnhancedBashToolRenderer);
 
 export { hasPiDevWorktrees } from "./predicates.js";
 export { PiDevWorktreesBadge } from "./PiDevWorktreesBadge.js";
