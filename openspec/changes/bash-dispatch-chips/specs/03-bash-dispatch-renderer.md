@@ -1,90 +1,83 @@
-# Spec: EnhancedBashToolRenderer + Client Reducer
+# Spec: Generic tool-row enrichment + registerToolRenderer export
 
-## Files
-- `~/.pi/dashboard/plugins/pi-dev-worktrees/src/client/EnhancedBashToolRenderer.tsx` (new)
-- `~/.pi/dashboard/plugins/pi-dev-worktrees/src/client/index.tsx` (add registration)
-- Client event reducer (patch tool row on event_forward)
+## Files (this repo)
+- `packages/client/src/lib/event-reducer.ts` — generic `event_forward` enrichment handler
+- `packages/dashboard-plugin-runtime/src/index.ts` — export `registerToolRenderer`, `getToolRenderer`, `ToolRendererProps`
 
-## Data flow
+## Background
 
-1. pi-dev-worktrees emits `pi.events.emit("pi-dev-worktrees:bash-dispatch", payload)`
-2. Bridge forwards as `event_forward { eventType, data }` automatically
-3. Client reducer matches `eventType === "pi-dev-worktrees:bash-dispatch"`
-4. Reducer extracts `toolCallId` from `data`, finds matching tool row, sets `row.args._pluginData["pi-dev-worktrees:bash-dispatch"] = data`
-5. `EnhancedBashToolRenderer` reads `args._pluginData[eventType]` and renders chips
+Plugins need a way to attach metadata to tool rows at render time, and to replace built-in tool renderers. Both mechanisms live in this repo. The plugin-specific rendering code lives in the plugin's own repo (e.g. `~/.pi/dashboard/plugins/pi-dev-worktrees/`).
 
-## Payload type (in `args._pluginData[eventType]`)
+## 1. Generic tool-row enrichment (event-reducer.ts)
+
+### What
+
+Any `event_forward` message whose `data` contains a `toolCallId` string is treated as a plugin enrichment for that tool row. No plugin-specific code in core.
+
+### Reducer logic
 
 ```ts
-interface BashDispatchData {
-  toolCallId: string;
-  llmCommand: string;
-  rtkRewritten: boolean;
-  rtkCommand?: string;
-  routing: "host" | "container" | "error";
-  hasDevcontainer: boolean;
-  errorMessage?: string;
+// In event_forward handler:
+if (data && typeof data.toolCallId === "string") {
+  const { toolCallId, ...enrichment } = data;
+  // Find matching tool row → patch args._pluginData[eventType]
+  // Row not yet created → buffer in pendingEnrichments
+}
+
+// In tool_execution_start handler:
+// Flush pending enrichments for this toolCallId into args._pluginData
+```
+
+### State additions
+
+```ts
+interface SessionState {
+  // ...
+  pendingEnrichments: Map<string, Map<string, unknown>>;
+  // Key: toolCallId, Value: Map<eventType, enrichment data>
 }
 ```
 
-## Client reducer patch
+### Semantics
 
-In the event reducer handling `event_forward`:
+- Payload stored at `args._pluginData[eventType]` — namespaced by event type
+- Multiple plugins annotate same row independently (no collision)
+- If tool row not yet created when `event_forward` arrives: buffered in `pendingEnrichments`; applied when `tool_execution_start` creates the row
+- Cap: 20 entries in `pendingEnrichments` to prevent unbounded growth from buggy plugins
+- LLM-originated `event_forward` events without `toolCallId` are unaffected (no-op for this path)
+
+## 2. Export registerToolRenderer (dashboard-plugin-runtime)
+
+### What
+
+`registerToolRenderer(toolName, Component)` registers a replacement renderer for a tool name. `getToolRenderer(toolName)` returns the registered component or `undefined`.
+
+### Export from barrel
 
 ```ts
-if (event.eventType === "pi-dev-worktrees:bash-dispatch") {
-  const { toolCallId, ...dispatch } = event.data;
-  // Find tool row with matching toolCallId, patch args._pluginData["pi-dev-worktrees:bash-dispatch"]
-}
+export { registerToolRenderer, getToolRenderer } from "<tool-renderer-registry-path>";
+export type { ToolRendererProps } from "<tool-renderer-types-path>";
 ```
 
-## EnhancedBashToolRenderer
-
-Registered via `registerToolRenderer("bash", EnhancedBashToolRenderer)`.
-
-### Behaviour
-- Reads `args._pluginData[eventType]` from props
-- When `_pluginData[eventType]` present: renders chip row + delegates to original `BashToolRenderer`
-- When `_pluginData[eventType]` absent: delegates to `BashToolRenderer` unchanged (transparent passthrough)
-
-### Chip rendering
-
-| Condition | Chip | Colour | Tooltip |
-|---|---|---|---|
-| `rtkRewritten === true` | `RTK` | amber-400 pill | `rtkCommand` |
-| `routing === "container"` | `container` | blue-400 pill | — |
-| `routing === "host"` AND `hasDevcontainer === true` | `host` | muted pill | — |
-| `routing === "error"` | `error` | red-400 pill | `errorMessage` |
-
-Host chip only shown when devcontainer is configured. Without devcontainer, routing is always host — chip adds no information.
-
-### Styling
-- Chips: `inline-flex items-center px-1.5 py-[1px] rounded text-[10px] font-sans`
-- RTK: `bg-amber-400/15 text-amber-400`
-- Container: `bg-blue-400/15 text-blue-400`
-- Host: `bg-[var(--bg-quaternary)] text-[var(--text-secondary)]`
-- Error: `bg-red-400/15 text-red-400`
-
-## Registration
-
-In `~/.pi/dashboard/plugins/pi-dev-worktrees/src/client/index.tsx`:
+### Plugin usage
 
 ```ts
+// In plugin client entry (module-load time, no React lifecycle needed)
 import { registerToolRenderer } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { EnhancedBashToolRenderer } from "./EnhancedBashToolRenderer.js";
 
 registerToolRenderer("bash", EnhancedBashToolRenderer);
 ```
 
-## Tests: `EnhancedBashToolRenderer.test.tsx`
-- `pluginData["pi-dev-worktrees:bash-dispatch"].routing="container"` → container chip shown
-- `pluginData["pi-dev-worktrees:bash-dispatch"].routing="host"` + `hasDevcontainer=true` → host chip shown
-- `pluginData["pi-dev-worktrees:bash-dispatch"].routing="host"` + `hasDevcontainer=false` → no host chip
-- `pluginData["pi-dev-worktrees:bash-dispatch"].rtkRewritten=true` + `rtkCommand` → RTK chip with title
-- `pluginData["pi-dev-worktrees:bash-dispatch"].routing="error"` + `errorMessage` → error chip with title
-- No `_pluginData[eventType]` in args → renders BashToolRenderer unchanged, no chips
+### ToolRendererSlot
 
-## Tests: reducer
-- `event_forward` with matching `eventType` → patches correct tool row's `args._pluginData[eventType]`
-- Unknown `eventType` → no patch
-- Missing `toolCallId` in payload → no patch
+`ToolRendererSlot` in `slot-consumers.tsx` checks `getToolRenderer(toolName)` before falling back to built-in renderer. Plugin renderer receives same props as built-in; reads `args._pluginData?.["plugin-id:event-name"]` for enrichment data.
+
+## Tests
+
+- [x] `registerToolRenderer` importable from barrel
+- [x] `getToolRenderer` returns registered component
+- [ ] Reducer: `event_forward` with `toolCallId` patches correct tool row's `args._pluginData[eventType]`
+- [ ] Reducer: `event_forward` arriving before row → buffered in `pendingEnrichments`, applied on `tool_execution_start`
+- [ ] Reducer: unknown `eventType` with no `toolCallId` → no-op
+- [ ] Reducer: `pendingEnrichments` cap at 20 evicts oldest
