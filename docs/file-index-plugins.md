@@ -53,7 +53,7 @@
 Plugins enrich built-in tool cards using three parts:
 
 1. **Extension side**: emit `pi.events.emit("plugin-id:event-name", { toolCallId, ...payload })` from `tool_call` handler. Bridge forwards automatically as `event_forward` (zero bridge changes needed).
-2. **Client reducer**: generic handler matches any `event_forward` whose `data` contains `toolCallId`; patches matching tool row's `args._pluginData[eventType]` with the payload. Multiple plugins annotate the same row independently via namespaced keys.
+2. **Client reducer** (`src/client/lib/event-reducer.ts`): generic `event_forward` handler extracts `toolCallId` from payload. If tool row exists, patches `args._pluginData[eventType]` in place. If row not yet created, buffers in `pendingEnrichments` (`Map<toolCallId, Map<eventType, data>>`); applied when `tool_execution_start` arrives. Multiple plugins annotate same row independently via namespaced keys.
 3. **Plugin runtime**: call `registerToolRenderer("bash", EnhancedRenderer)` at module load. Re-exported from `@blackbelt-technology/dashboard-plugin-runtime`. Renderer reads `args._pluginData?.["plugin-id:event-name"]` and renders enrichments; delegates to original renderer when absent.
 
 See `openspec/changes/bash-dispatch-chips/` for canonical example (`pi-dev-worktrees:bash-dispatch` event, `EnhancedBashToolRenderer`).
