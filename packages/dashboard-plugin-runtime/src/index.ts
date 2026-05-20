@@ -42,3 +42,5 @@ export {
   useUiPrimitiveOrNull,
 } from "./ui-primitive-context.js";
 export type { UiPrimitiveProviderProps } from "./ui-primitive-context.js";
+export { registerInteractiveRenderer } from "../../client/src/components/interactive-renderers/registry.js";
+export type { InteractiveRenderer, InteractiveRendererProps } from "../../client/src/components/interactive-renderers/types.js";

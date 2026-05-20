@@ -1353,14 +1353,26 @@ function initBridge(pi: ExtensionAPI) {
         }).then(decodeMultiselectAnswer);
 
       // Notify is fire-and-forget: call original + forward to dashboard
-      (ctx.ui as any).notify = (message: string, level?: string) => {
+      (ctx.ui as any).notify = (
+        message: string,
+        levelOrOpts?: string | { toolCallId?: string; level?: string; method?: string; props?: Record<string, unknown> },
+      ) => {
+        const level =
+          typeof levelOrOpts === "string" ? levelOrOpts : (levelOrOpts?.level ?? undefined);
+        const toolCallId =
+          typeof levelOrOpts === "object" ? levelOrOpts?.toolCallId : undefined;
+        const method =
+          (typeof levelOrOpts === "object" ? levelOrOpts?.method : undefined) ?? "notify";
+        const extraProps =
+          typeof levelOrOpts === "object" ? (levelOrOpts?.props ?? {}) : {};
+
         originalNotify?.(message, level);
         connection.send({
           type: "prompt_request" as any,
           sessionId,
           promptId: crypto.randomUUID(),
-          prompt: { question: message, type: "notify" },
-          component: { type: "notify", props: { message, level } },
+          prompt: { question: message, type: method, metadata: buildMeta({ toolCallId }) },
+          component: { type: method, props: { message, level, ...extraProps } },
           placement: "inline",
         });
       };
