@@ -41,10 +41,10 @@ Spec: `specs/04-companion-pi-dev-worktrees.md`
 - [x] 4.2 Capture `llmCommand` in `tool_execution_start` handler
 - [ ] 4.3 Integration test: event arrives at dashboard as `event_forward` with correct payload
 
-## 5. Bridge notify opts (preserved for future use)
+## 5. Bridge notify opts (reverted)
 
 Spec: `specs/01-bridge-notify-opts.md`
 
-- [x] 5.1 `ctx.ui.notify` opts extension implemented (backward-compatible)
-- [x] 5.2 Tests passing
-- Note: NOT used by bash-dispatch-chips. Preserved for future plugin use cases.
+- ~~5.1 `ctx.ui.notify` opts extension implemented (backward-compatible)~~ — reverted
+- ~~5.2 Tests passing~~ — reverted
+- Note: Implementation removed. Failed pathway. See spec 01 for rationale.

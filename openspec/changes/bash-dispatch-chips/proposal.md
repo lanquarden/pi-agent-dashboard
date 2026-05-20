@@ -28,9 +28,9 @@ No bridge changes needed. No `prompt_request`, no suppression mechanism, no inte
 
 - **Files** (this repo):
   - `packages/dashboard-plugin-runtime/src/index.ts` — export `registerToolRenderer`
-  - Client event reducer — handle `pi-dev-worktrees:bash-dispatch` event_forward
-  - `packages/pi-dev-worktrees-plugin/src/client/EnhancedBashToolRenderer.tsx` — new component
-  - `packages/pi-dev-worktrees-plugin/src/client/index.tsx` — register tool renderer
+  - Client event reducer — handle generic `event_forward` tool-row enrichment
+  - `~/.pi/dashboard/plugins/pi-dev-worktrees/src/client/EnhancedBashToolRenderer.tsx` — new component
+  - `~/.pi/dashboard/plugins/pi-dev-worktrees/src/client/index.tsx` — register tool renderer
 - **Companion change**: `pi-dev-worktrees` repo — emit pi event from `tool_call` handler
 - **Tests**: reducer patch test, `EnhancedBashToolRenderer` render tests
 - **Protocol**: no new WS message types; uses existing `event_forward`

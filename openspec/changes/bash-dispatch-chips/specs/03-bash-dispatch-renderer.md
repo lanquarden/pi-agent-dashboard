@@ -1,8 +1,8 @@
 # Spec: EnhancedBashToolRenderer + Client Reducer
 
 ## Files
-- `packages/pi-dev-worktrees-plugin/src/client/EnhancedBashToolRenderer.tsx` (new)
-- `packages/pi-dev-worktrees-plugin/src/client/index.tsx` (add registration)
+- `~/.pi/dashboard/plugins/pi-dev-worktrees/src/client/EnhancedBashToolRenderer.tsx` (new)
+- `~/.pi/dashboard/plugins/pi-dev-worktrees/src/client/index.tsx` (add registration)
 - Client event reducer (patch tool row on event_forward)
 
 ## Data flow
@@ -67,7 +67,7 @@ Host chip only shown when devcontainer is configured. Without devcontainer, rout
 
 ## Registration
 
-In `packages/pi-dev-worktrees-plugin/src/client/index.tsx`:
+In `~/.pi/dashboard/plugins/pi-dev-worktrees/src/client/index.tsx`:
 
 ```ts
 import { registerToolRenderer } from "@blackbelt-technology/dashboard-plugin-runtime";
