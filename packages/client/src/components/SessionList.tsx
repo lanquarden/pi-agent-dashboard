@@ -783,8 +783,8 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
                         onSendPrompt={onSendPrompt ? (text, images) => onSendPrompt(session.id, text, images) : undefined}
                         onAttachProposal={onAttachProposal ? (changeName) => onAttachProposal(session.id, changeName) : undefined}
                         onDetachProposal={onDetachProposal ? () => onDetachProposal(session.id) : undefined}
-                        onReadArtifact={onReadArtifact ? (changeName, artifactId) => onReadArtifact(session.cwd, changeName, artifactId) : undefined}
-                        onBulkArchive={onBulkArchive ? () => onBulkArchive(session.cwd) : undefined}
+                        onReadArtifact={onReadArtifact ? (changeName, artifactId) => onReadArtifact(session.openspecCwd ?? session.cwd, changeName, artifactId) : undefined}
+                        onBulkArchive={onBulkArchive ? () => onBulkArchive(session.openspecCwd ?? session.cwd) : undefined}
                         onRename={onRename ? (name) => onRename(session.id, name) : undefined}
                         onShutdown={onShutdown}
                         onResume={onResume ? (mode) => onResume(session.id, mode) : undefined}

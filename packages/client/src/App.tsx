@@ -951,7 +951,7 @@ export default function App() {
           onAttachProposal: (changeName) => handleAttachProposal(selectedId, changeName),
           onDetachProposal: () => handleDetachProposal(selectedId),
           onSendPrompt: (text) => wrappedHandleSend(text),
-          onReadArtifact: (changeName, artifactId) => handleReadArtifact(selectedCwd!, changeName, artifactId),
+          onReadArtifact: (changeName, artifactId) => handleReadArtifact(selectedSession?.openspecCwd ?? selectedCwd!, changeName, artifactId),
           onRefresh: () => {
             setSessionStates((prev) => {
               const next = new Map(prev);
@@ -969,7 +969,7 @@ export default function App() {
         openspecChanges={selectedCwd ? openspecMap.get(selectedSession?.openspecCwd ?? selectedCwd)?.changes : undefined}
         onAttachProposal={(changeName) => handleAttachProposal(selectedId, changeName)}
         onDetachProposal={() => handleDetachProposal(selectedId)}
-        onReadArtifact={selectedCwd ? (changeName, artifactId) => handleReadArtifact(selectedCwd, changeName, artifactId) : undefined}
+        onReadArtifact={selectedCwd ? (changeName, artifactId) => handleReadArtifact(selectedSession?.openspecCwd ?? selectedCwd, changeName, artifactId) : undefined}
         hasFileChanges={selectedState.hasFileChanges}
         onOpenDiffView={() => navigate(buildSessionDiffUrl(selectedId))}
         onOpenExtensionModulePicker={() => setExtensionModulePickerOpen(true)}
