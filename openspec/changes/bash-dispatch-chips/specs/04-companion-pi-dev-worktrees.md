@@ -25,7 +25,7 @@ pi.events.emit("pi-dev-worktrees:bash-dispatch", {
 1. `tool_execution_start` → capture original LLM command in `pendingLlmCommands` Map
 2. `tool_call` → after `applyBashIntercept`, emit pi event with dispatch metadata
 3. Bridge forwards as `event_forward` automatically (existing mechanism)
-4. Client reducer patches tool row `args._dispatch`
+4. Client reducer patches tool row `args._pluginData[eventType]`
 
 ## No bridge dependency
 

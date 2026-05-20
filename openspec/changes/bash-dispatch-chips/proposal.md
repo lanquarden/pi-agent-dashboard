@@ -7,9 +7,9 @@ The fix uses a tool-renderer replacement pattern: pi-dev-worktrees emits a struc
 ## What Changes
 
 - **pi-dev-worktrees extension** (`pi-dev-worktrees` repo): emit `pi.events.emit("pi-dev-worktrees:bash-dispatch", payload)` from `tool_call` handler after routing. Payload carries `toolCallId`, `llmCommand`, `routing`, `rtkRewritten`, `rtkCommand`, `hasDevcontainer`.
-- **Client event reducer** (`src/client/`): handle `event_forward` with `eventType === "pi-dev-worktrees:bash-dispatch"` — patch matching tool row's `args._dispatch` with dispatch metadata.
+- **Client event reducer** (`src/client/`): handle `event_forward` with `eventType === "pi-dev-worktrees:bash-dispatch"` — patch matching tool row's `args._pluginData[eventType]` with dispatch metadata.
 - **dashboard-plugin-runtime** (`packages/dashboard-plugin-runtime`): export `registerToolRenderer` so plugins can replace built-in tool renderers.
-- **pi-dev-worktrees-plugin** (`packages/pi-dev-worktrees-plugin`): register `EnhancedBashToolRenderer` via `registerToolRenderer("bash", ...)` — renders chips from `args._dispatch`, delegates to original `BashToolRenderer` for standard rendering.
+- **pi-dev-worktrees-plugin** (`packages/pi-dev-worktrees-plugin`): register `EnhancedBashToolRenderer` via `registerToolRenderer("bash", ...)` — renders chips from `args._pluginData[eventType]`, delegates to original `BashToolRenderer` for standard rendering.
 
 No bridge changes needed. No `prompt_request`, no suppression mechanism, no interactive renderer.
 
@@ -18,7 +18,7 @@ No bridge changes needed. No `prompt_request`, no suppression mechanism, no inte
 ### New Capabilities
 
 - `tool-renderer-replacement`: Plugins replace built-in tool renderers via `registerToolRenderer(toolName, Component)`. Plugin renderer wraps or replaces the original.
-- `bash-dispatch-chips`: `EnhancedBashToolRenderer` renders routing/RTK chips on bash tool cards when `args._dispatch` is present.
+- `bash-dispatch-chips`: `EnhancedBashToolRenderer` renders routing/RTK chips on bash tool cards when `args._pluginData[eventType]` is present.
 
 ### Modified Capabilities
 

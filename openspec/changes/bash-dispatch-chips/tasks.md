@@ -11,15 +11,15 @@ Spec: `specs/02-plugin-runtime-export.md`
 Spec: `specs/03-bash-dispatch-renderer.md`
 
 - [x] 3.1 In client event reducer, match `event_forward` with `eventType === "pi-dev-worktrees:bash-dispatch"`
-- [x] 3.2 Extract `toolCallId` from payload, find matching tool row, patch `args._dispatch`
-- [ ] 3.3 Add reducer test: event_forward patches correct tool row's `args._dispatch`
+- [x] 3.2 Extract `toolCallId` from payload, find matching tool row, patch `args._pluginData[eventType]`
+- [ ] 3.3 Add reducer test: event_forward patches correct tool row's `args._pluginData[eventType]`
 
 ## 3. EnhancedBashToolRenderer
 
 Spec: `specs/03-bash-dispatch-renderer.md`
 
 - [x] 3.4 Create `packages/pi-dev-worktrees-plugin/src/client/EnhancedBashToolRenderer.tsx`
-  - Read `args._dispatch` from tool renderer props
+  - Read `args._pluginData[eventType]` from tool renderer props
   - When present: render chip row (routing + RTK chips) above delegated `BashToolRenderer`
   - When absent: delegate to `BashToolRenderer` unchanged
   - Host chip gated on `hasDevcontainer === true`
@@ -31,7 +31,7 @@ Spec: `specs/03-bash-dispatch-renderer.md`
   - host routing + hasDevcontainer=false → no host chip
   - rtkRewritten=true → RTK chip with title=rtkCommand
   - routing=error → error chip
-  - no `_dispatch` → delegates to BashToolRenderer unchanged
+  - no `_pluginData[eventType]` → delegates to BashToolRenderer unchanged
 
 ## 4. Companion repo (pi-dev-worktrees)
 

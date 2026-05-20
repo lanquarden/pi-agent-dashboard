@@ -10,10 +10,10 @@
 1. pi-dev-worktrees emits `pi.events.emit("pi-dev-worktrees:bash-dispatch", payload)`
 2. Bridge forwards as `event_forward { eventType, data }` automatically
 3. Client reducer matches `eventType === "pi-dev-worktrees:bash-dispatch"`
-4. Reducer extracts `toolCallId` from `data`, finds matching tool row, sets `row.args._dispatch = data`
-5. `EnhancedBashToolRenderer` reads `args._dispatch` and renders chips
+4. Reducer extracts `toolCallId` from `data`, finds matching tool row, sets `row.args._pluginData["pi-dev-worktrees:bash-dispatch"] = data`
+5. `EnhancedBashToolRenderer` reads `args._pluginData[eventType]` and renders chips
 
-## Payload type (in `args._dispatch`)
+## Payload type (in `args._pluginData[eventType]`)
 
 ```ts
 interface BashDispatchData {
@@ -34,7 +34,7 @@ In the event reducer handling `event_forward`:
 ```ts
 if (event.eventType === "pi-dev-worktrees:bash-dispatch") {
   const { toolCallId, ...dispatch } = event.data;
-  // Find tool row with matching toolCallId, patch args._dispatch
+  // Find tool row with matching toolCallId, patch args._pluginData["pi-dev-worktrees:bash-dispatch"]
 }
 ```
 
@@ -43,9 +43,9 @@ if (event.eventType === "pi-dev-worktrees:bash-dispatch") {
 Registered via `registerToolRenderer("bash", EnhancedBashToolRenderer)`.
 
 ### Behaviour
-- Reads `args._dispatch` from props
-- When `_dispatch` present: renders chip row + delegates to original `BashToolRenderer`
-- When `_dispatch` absent: delegates to `BashToolRenderer` unchanged (transparent passthrough)
+- Reads `args._pluginData[eventType]` from props
+- When `_pluginData[eventType]` present: renders chip row + delegates to original `BashToolRenderer`
+- When `_pluginData[eventType]` absent: delegates to `BashToolRenderer` unchanged (transparent passthrough)
 
 ### Chip rendering
 
@@ -77,14 +77,14 @@ registerToolRenderer("bash", EnhancedBashToolRenderer);
 ```
 
 ## Tests: `EnhancedBashToolRenderer.test.tsx`
-- `_dispatch.routing="container"` → container chip shown
-- `_dispatch.routing="host"` + `hasDevcontainer=true` → host chip shown
-- `_dispatch.routing="host"` + `hasDevcontainer=false` → no host chip
-- `_dispatch.rtkRewritten=true` + `rtkCommand` → RTK chip with title
-- `_dispatch.routing="error"` + `errorMessage` → error chip with title
-- No `_dispatch` in args → renders BashToolRenderer unchanged, no chips
+- `pluginData["pi-dev-worktrees:bash-dispatch"].routing="container"` → container chip shown
+- `pluginData["pi-dev-worktrees:bash-dispatch"].routing="host"` + `hasDevcontainer=true` → host chip shown
+- `pluginData["pi-dev-worktrees:bash-dispatch"].routing="host"` + `hasDevcontainer=false` → no host chip
+- `pluginData["pi-dev-worktrees:bash-dispatch"].rtkRewritten=true` + `rtkCommand` → RTK chip with title
+- `pluginData["pi-dev-worktrees:bash-dispatch"].routing="error"` + `errorMessage` → error chip with title
+- No `_pluginData[eventType]` in args → renders BashToolRenderer unchanged, no chips
 
 ## Tests: reducer
-- `event_forward` with matching `eventType` → patches correct tool row's `args._dispatch`
+- `event_forward` with matching `eventType` → patches correct tool row's `args._pluginData[eventType]`
 - Unknown `eventType` → no patch
 - Missing `toolCallId` in payload → no patch
