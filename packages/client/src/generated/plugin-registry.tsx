@@ -6,6 +6,8 @@ import { JjWorkspaceBadge, isInJjWorkspace, JjActionBar, isInJjRepo, JjInitAffor
 import { BuiltInRolesSettings } from "../../../roles-plugin/src/index";
 import { MicButton, VoiceInputSettings } from "../../../voice-input-plugin/src/client";
 import { FlowsAnthropicBridgeSettings } from "../../../flows-anthropic-bridge-plugin/src/client";
+import "../../../../../../.pi/dashboard/plugins/pi-dev-worktrees/src/client/index"; // side-effects
+import { PiDevWorktreesBadge, hasPiDevWorktrees, EnhancedBashToolRenderer } from "../../../../../../.pi/dashboard/plugins/pi-dev-worktrees/src/client/index";
 
 import type { PluginManifest } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
 import type { ClaimEntry } from "@blackbelt-technology/dashboard-plugin-runtime";
@@ -233,6 +235,27 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
       { pluginId: "flows-anthropic-bridge", priority: 500, slot: "settings-section", tab: "general", Component: FlowsAnthropicBridgeSettings },
     ],
   },
+  {
+    manifest: {
+        "id": "pi-dev-worktrees",
+        "displayName": "pi-dev-worktrees Workspace",
+        "priority": 100,
+        "claims": [
+            {
+                "slot": "session-card-badge",
+                "component": "PiDevWorktreesBadge",
+                "predicate": "hasPiDevWorktrees"
+            }
+        ],
+        "client": "./src/client/index.tsx"
+    },
+    claims: [
+      { pluginId: "pi-dev-worktrees", priority: 100, slot: "session-card-badge", Component: PiDevWorktreesBadge, predicate: hasPiDevWorktrees },
+    ],
+  },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "5075db2c759f5b7a31f7c765df0b592cfd5539935bb0e708d716b5e6f2af73bd";
+import { registerToolRenderer } from "../components/tool-renderers/registry.js";
+registerToolRenderer("bash", EnhancedBashToolRenderer);
+
+export const PLUGIN_REGISTRY_HASH = "9eecb200ee2b64118902f93d98231644f3ed0035653a058c002476b538e4ec99";

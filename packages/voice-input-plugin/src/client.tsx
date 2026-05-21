@@ -253,8 +253,22 @@ export function MicButton({ session, onInsertText }: SlotProps<"command-input-ac
   const isActive = status === "listening" || status === "loading-model";
   const isProcessing = status === "transcribing" || status === "requesting-permission" || status === "loading-model";
 
+  const statusRing = isActive ? (
+    <span className="absolute inset-[-2px] rounded-full border-2 border-red-500 animate-[voice-input-pulse_1.5s_ease-in-out_infinite]" />
+  ) : null;
+
+  const btnBg = isActive
+    ? "bg-red-500 text-white"
+    : status === "error"
+      ? "bg-amber-500 text-white"
+      : "text-[var(--text-muted)]";
+
+  const btnCursor = isProcessing ? "cursor-wait opacity-50" : "cursor-pointer";
+
+  const textColor = isActive ? "text-red-500" : "text-[var(--text-muted)]";
+
   return (
-    <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+    <div className="relative inline-flex items-center">
       <button
         type="button"
         aria-label={isActive ? "Stop recording" : "Start voice input"}
@@ -264,54 +278,17 @@ export function MicButton({ session, onInsertText }: SlotProps<"command-input-ac
         onPointerLeave={handlePointerLeave}
         onClick={handleClick}
         disabled={isProcessing}
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          width: "32px",
-          height: "32px",
-          padding: 0,
-          border: "none",
-          borderRadius: "50%",
-          cursor: isProcessing ? "wait" : "pointer",
-          background: isActive
-            ? "#ef4444"
-            : status === "error"
-              ? "#f59e0b"
-              : "transparent",
-          color: isActive ? "#fff" : status === "error" ? "#fff" : "#9ca3af",
-          opacity: isProcessing ? 0.5 : 1,
-          transition: "background 0.2s, color 0.2s",
-          marginRight: "4px",
-        }}
+        className={`inline-flex items-center justify-center w-8 h-8 p-0 border-0 rounded-full mr-1 transition-[background,color] duration-200 ${btnBg} ${btnCursor}`}
       >
         <Icon
           path={isActive ? mdiMicrophone : mdiMicrophoneOff}
           size={0.8}
         />
-        {isActive && (
-          <span
-            style={{
-              position: "absolute",
-              inset: "-2px",
-              borderRadius: "50%",
-              border: "2px solid #ef4444",
-              animation: "voice-input-pulse 1.5s ease-in-out infinite",
-            }}
-          />
-        )}
+        {statusRing}
       </button>
       {liveText && (
         <span
-          style={{
-            fontSize: "11px",
-            color: isActive ? "#ef4444" : "#9ca3af",
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            maxWidth: "200px",
-            marginLeft: "4px",
-          }}
+          className={`text-[11px] truncate max-w-[200px] ml-1 ${textColor}`}
         >
           {liveText}
         </span>
@@ -347,7 +324,6 @@ export function VoiceInputSettings() {
   const rawConfig = usePluginConfig<VoiceInputConfig>();
   // Merge with defaults so partial configs (e.g. from seeded tests) don't crash
   const config: VoiceInputConfig = { ...DEFAULT_CONFIG, ...rawConfig };
-  const send = usePluginSend();
 
   // Sync state from config, but only when the underlying rawConfig changes (stable ref).
   // Spread creates a new object every render, so we depend on rawConfig, not config.
@@ -358,29 +334,46 @@ export function VoiceInputSettings() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rawConfig]);
 
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+
   const update = useCallback((patch: Partial<VoiceInputConfig>) => {
     setLocal((prev) => ({ ...prev, ...patch }));
   }, []);
 
-  const save = useCallback(() => {
-    send({
-      type: "plugin_config_write" as never,
-      id: "voice-input",
-      config: local,
-    });
-  }, [send, local]);
+  const save = useCallback(async () => {
+    setSaveState("saving");
+    try {
+      // Strip non-schema fields (e.g. "enabled" from plugin toggle) before sending
+      const { enabled: _, ...configToSave } = local as VoiceInputConfig & { enabled?: boolean };
+      const res = await fetch(`/api/config/plugins/voice-input`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(configToSave),
+      });
+      if (!res.ok) {
+        setSaveState("error");
+        setTimeout(() => setSaveState("idle"), 3000);
+      } else {
+        setSaveState("saved");
+        setTimeout(() => setSaveState("idle"), 1500);
+      }
+    } catch {
+      setSaveState("error");
+      setTimeout(() => setSaveState("idle"), 3000);
+    }
+  }, [local]);
 
   return (
-    <div data-testid="voice-input-settings" style={{ fontSize: "12px", color: "#d1d5db" }}>
-      <h3 style={{ fontSize: "13px", margin: "0 0 8px 0", color: "#f3f4f6" }}>Voice Input</h3>
+    <div data-testid="voice-input-settings" className="text-xs text-[var(--text-secondary)]">
+      <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-2">Voice Input</h3>
 
       {/* Mode */}
-      <label style={{ display: "block", marginBottom: "8px" }}>
-        <span style={{ display: "block", marginBottom: "2px", fontWeight: 500 }}>Recording mode</span>
+      <label className="block mb-2">
+        <span className="block mb-0.5 font-medium text-[var(--text-secondary)]">Recording mode</span>
         <select
           value={local.mode}
           onChange={(e) => update({ mode: e.target.value as VoiceInputConfig["mode"] })}
-          style={{ width: "100%", padding: "4px 6px", fontSize: "12px", background: "#1f2937", color: "#d1d5db", border: "1px solid #374151", borderRadius: "4px" }}
+          className="w-full px-1.5 py-1 text-xs rounded border border-[var(--border-secondary)] bg-[var(--bg-primary)] text-[var(--text-primary)]"
         >
           {MODE_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
@@ -389,12 +382,12 @@ export function VoiceInputSettings() {
       </label>
 
       {/* Transcription engine */}
-      <label style={{ display: "block", marginBottom: "8px" }}>
-        <span style={{ display: "block", marginBottom: "2px", fontWeight: 500 }}>Transcription engine</span>
+      <label className="block mb-2">
+        <span className="block mb-0.5 font-medium text-[var(--text-secondary)]">Transcription engine</span>
         <select
           value={local.transcriptionEngine}
           onChange={(e) => update({ transcriptionEngine: e.target.value as VoiceInputConfig["transcriptionEngine"] })}
-          style={{ width: "100%", padding: "4px 6px", fontSize: "12px", background: "#1f2937", color: "#d1d5db", border: "1px solid #374151", borderRadius: "4px" }}
+          className="w-full px-1.5 py-1 text-xs rounded border border-[var(--border-secondary)] bg-[var(--bg-primary)] text-[var(--text-primary)]"
         >
           {ENGINE_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
@@ -403,26 +396,26 @@ export function VoiceInputSettings() {
       </label>
 
       {/* Language */}
-      <label style={{ display: "block", marginBottom: "8px" }}>
-        <span style={{ display: "block", marginBottom: "2px", fontWeight: 500 }}>Language</span>
+      <label className="block mb-2">
+        <span className="block mb-0.5 font-medium text-[var(--text-secondary)]">Language</span>
         <input
           type="text"
           value={local.language}
           onChange={(e) => update({ language: e.target.value })}
           placeholder="en"
-          style={{ width: "100%", padding: "4px 6px", fontSize: "12px", background: "#1f2937", color: "#d1d5db", border: "1px solid #374151", borderRadius: "4px" }}
+          className="w-full px-1.5 py-1 text-xs rounded border border-[var(--border-secondary)] bg-[var(--bg-primary)] text-[var(--text-primary)]"
         />
       </label>
 
       {/* Server engine (conditional) */}
       {local.transcriptionEngine === "server" && (
         <>
-          <label style={{ display: "block", marginBottom: "8px" }}>
-            <span style={{ display: "block", marginBottom: "2px", fontWeight: 500 }}>Server STT engine</span>
+          <label className="block mb-2">
+            <span className="block mb-0.5 font-medium text-[var(--text-secondary)]">Server STT engine</span>
             <select
               value={local.serverEngine}
               onChange={(e) => update({ serverEngine: e.target.value as VoiceInputConfig["serverEngine"] })}
-              style={{ width: "100%", padding: "4px 6px", fontSize: "12px", background: "#1f2937", color: "#d1d5db", border: "1px solid #374151", borderRadius: "4px" }}
+              className="w-full px-1.5 py-1 text-xs rounded border border-[var(--border-secondary)] bg-[var(--bg-primary)] text-[var(--text-primary)]"
             >
               {SERVER_ENGINE_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>{o.label}</option>
@@ -431,27 +424,27 @@ export function VoiceInputSettings() {
           </label>
 
           {local.serverEngine === "openai-whisper" && (
-            <label style={{ display: "block", marginBottom: "8px" }}>
-              <span style={{ display: "block", marginBottom: "2px", fontWeight: 500 }}>OpenAI API key</span>
+            <label className="block mb-2">
+              <span className="block mb-0.5 font-medium text-[var(--text-secondary)]">OpenAI API key</span>
               <input
                 type="password"
                 value={local.openaiApiKey}
                 onChange={(e) => update({ openaiApiKey: e.target.value })}
                 placeholder="sk-..."
-                style={{ width: "100%", padding: "4px 6px", fontSize: "12px", background: "#1f2937", color: "#d1d5db", border: "1px solid #374151", borderRadius: "4px" }}
+                className="w-full px-1.5 py-1 text-xs rounded border border-[var(--border-secondary)] bg-[var(--bg-primary)] text-[var(--text-primary)]"
               />
             </label>
           )}
 
           {local.serverEngine === "parakeet-onnx" && (
-            <label style={{ display: "block", marginBottom: "8px" }}>
-              <span style={{ display: "block", marginBottom: "2px", fontWeight: 500 }}>HuggingFace model repo</span>
+            <label className="block mb-2">
+              <span className="block mb-0.5 font-medium text-[var(--text-secondary)]">HuggingFace model repo</span>
               <input
                 type="text"
                 value={local.parakeetModelRepo}
                 onChange={(e) => update({ parakeetModelRepo: e.target.value })}
                 placeholder="ysdede/parakeet-tdt-0.6b-v3-onnx"
-                style={{ width: "100%", padding: "4px 6px", fontSize: "12px", background: "#1f2937", color: "#d1d5db", border: "1px solid #374151", borderRadius: "4px" }}
+                className="w-full px-1.5 py-1 text-xs rounded border border-[var(--border-secondary)] bg-[var(--bg-primary)] text-[var(--text-primary)]"
               />
             </label>
           )}
@@ -459,8 +452,8 @@ export function VoiceInputSettings() {
       )}
 
       {/* VAD threshold */}
-      <label style={{ display: "block", marginBottom: "8px" }}>
-        <span style={{ display: "block", marginBottom: "2px", fontWeight: 500 }}>
+      <label className="block mb-2">
+        <span className="block mb-0.5 font-medium text-[var(--text-secondary)]">
           VAD threshold: {local.vadThreshold.toFixed(1)}
         </span>
         <input
@@ -470,20 +463,20 @@ export function VoiceInputSettings() {
           step="0.1"
           value={local.vadThreshold}
           onChange={(e) => update({ vadThreshold: parseFloat(e.target.value) })}
-          style={{ width: "100%" }}
+          className="w-full"
         />
       </label>
 
       {/* Parakeet model URL (client mode only) */}
       {local.transcriptionEngine === "client" && (
-        <label style={{ display: "block", marginBottom: "8px" }}>
-          <span style={{ display: "block", marginBottom: "2px", fontWeight: 500 }}>Parakeet model URL</span>
+        <label className="block mb-2">
+          <span className="block mb-0.5 font-medium text-[var(--text-secondary)]">Parakeet model URL</span>
           <input
             type="text"
             value={local.parakeetModelUrl}
             onChange={(e) => update({ parakeetModelUrl: e.target.value })}
             placeholder="Default CDN (Hugging Face)"
-            style={{ width: "100%", padding: "4px 6px", fontSize: "12px", background: "#1f2937", color: "#d1d5db", border: "1px solid #374151", borderRadius: "4px" }}
+            className="w-full px-1.5 py-1 text-xs rounded border border-[var(--border-secondary)] bg-[var(--bg-primary)] text-[var(--text-primary)]"
           />
         </label>
       )}
@@ -491,18 +484,14 @@ export function VoiceInputSettings() {
       <button
         data-testid="voice-input-save"
         onClick={save}
-        style={{
-          padding: "4px 12px",
-          fontSize: "12px",
-          background: "#2563eb",
-          color: "#fff",
-          border: "none",
-          borderRadius: "4px",
-          cursor: "pointer",
-          marginTop: "4px",
-        }}
+        disabled={saveState === "saving"}
+        className={`text-xs px-3 py-1 rounded mt-1 cursor-pointer border-0 ${
+          saveState === "saved" ? "bg-green-600 text-white" :
+          saveState === "error" ? "bg-red-600 text-white" :
+          "bg-[var(--accent-blue)] text-white"
+        }`}
       >
-        Save
+        {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : saveState === "error" ? "Error" : "Save"}
       </button>
     </div>
   );

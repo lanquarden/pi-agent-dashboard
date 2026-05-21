@@ -139,6 +139,8 @@ export function createBrowserGateway(
   pendingAttachRegistry?: import("./pending-attach-registry.js").PendingAttachRegistry,
   pendingResumeIntents?: import("./pending-resume-intent-registry.js").PendingResumeIntentRegistry,
   pendingClientCorrelations?: import("./pending-client-correlations.js").PendingClientCorrelations,
+  writePluginConfig?: (id: string, partial: Record<string, unknown>) => Promise<void>,
+  getPluginConfigs?: () => Record<string, Record<string, unknown>>,
 ): BrowserGateway {
   const wss = new WebSocketServer({ noServer: true });
 
@@ -314,6 +316,15 @@ export function createBrowserGateway(
     if (terminalManager) {
       for (const terminal of terminalManager.list()) {
         sendTo(ws, { type: "terminal_added", terminal });
+      }
+    }
+
+    // Send plugin configs on connect so usePluginConfig hooks initialize
+    // with persisted values instead of empty defaults.
+    if (getPluginConfigs) {
+      const configs = getPluginConfigs();
+      for (const [id, config] of Object.entries(configs)) {
+        sendTo(ws, { type: "plugin_config_update", id, config });
       }
     }
 
@@ -585,6 +596,13 @@ export function createBrowserGateway(
           }
           case "session_unview": {
             viewedSessionTracker.unview(msg.sessionId, ws);
+            break;
+          }
+          case "plugin_config_write": {
+            const pcm = msg as { id: string; config: Record<string, unknown> };
+            if (writePluginConfig && pcm.id) {
+              writePluginConfig(pcm.id, pcm.config ?? {});
+            }
             break;
           }
           default: {

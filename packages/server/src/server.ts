@@ -570,7 +570,29 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     },
   });
 
-  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingResumeIntents, pendingClientCorrelations);
+  const writePluginConfig = async (id: string, partial: Record<string, unknown>) => {
+    const { readFileSync, writeFileSync, renameSync, mkdirSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { homedir } = await import("node:os");
+    const dir = join(homedir(), ".pi", "dashboard");
+    const file = join(dir, "config.json");
+    let raw: Record<string, unknown> = {};
+    try { raw = JSON.parse(readFileSync(file, "utf-8")); } catch { /* fresh */ }
+    const existingPlugins = (raw.plugins as Record<string, unknown> | undefined) ?? {};
+    const existing = (existingPlugins[id] as Record<string, unknown> | undefined) ?? {};
+    const merged = { ...existing, ...partial };
+    mkdirSync(dir, { recursive: true });
+    const tmp = file + ".tmp." + process.pid;
+    writeFileSync(tmp, JSON.stringify({ ...raw, plugins: { ...existingPlugins, [id]: merged } }, null, 2) + "\n");
+    renameSync(tmp, file);
+    browserGateway.broadcast({ type: "plugin_config_update", id, config: merged });
+  };
+
+  const getPluginConfigs = (): Record<string, Record<string, unknown>> => {
+    return (loadConfig().plugins as Record<string, Record<string, unknown>>) ?? {};
+  };
+
+  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingResumeIntents, pendingClientCorrelations, writePluginConfig, getPluginConfigs);
 
   // Resolve package version once at startup
   const __require = createRequire(import.meta.url);
