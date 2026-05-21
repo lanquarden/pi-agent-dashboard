@@ -1,4 +1,4 @@
-import type { ToolRenderer } from "./types.js";
+import type { ToolRenderer, HeaderChipsFn } from "./types.js";
 import { ReadToolRenderer } from "./ReadToolRenderer.js";
 import { EditToolRenderer } from "./EditToolRenderer.js";
 import { WriteToolRenderer } from "./WriteToolRenderer.js";
@@ -20,12 +20,26 @@ const renderers = new Map<string, ToolRenderer>([
   ["ask_user", AskUserToolRenderer],
 ]);
 
-/** Register a custom renderer for a tool name */
-export function registerToolRenderer(toolName: string, renderer: ToolRenderer): void {
+const headerChipsRegistry = new Map<string, HeaderChipsFn>();
+
+/** Register a custom renderer for a tool name, with optional header chips */
+export function registerToolRenderer(
+  toolName: string,
+  renderer: ToolRenderer,
+  opts?: { headerChips?: HeaderChipsFn },
+): void {
   renderers.set(toolName, renderer);
+  if (opts?.headerChips) {
+    headerChipsRegistry.set(toolName, opts.headerChips);
+  }
 }
 
 /** Get the renderer for a tool, falling back to GenericToolRenderer */
 export function getToolRenderer(toolName: string): ToolRenderer {
   return renderers.get(toolName) ?? GenericToolRenderer;
+}
+
+/** Get the header chips function for a tool (if registered by a plugin) */
+export function getToolHeaderChips(toolName: string): HeaderChipsFn | undefined {
+  return headerChipsRegistry.get(toolName);
 }

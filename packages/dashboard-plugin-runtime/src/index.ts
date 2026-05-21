@@ -45,4 +45,4 @@ export type { UiPrimitiveProviderProps } from "./ui-primitive-context.js";
 export { registerInteractiveRenderer } from "../../client/src/components/interactive-renderers/registry.js";
 export type { InteractiveRenderer, InteractiveRendererProps } from "../../client/src/components/interactive-renderers/types.js";
 export { registerToolRenderer } from "../../client/src/components/tool-renderers/registry.js";
-export type { ToolRenderer, ToolRendererProps } from "../../client/src/components/tool-renderers/types.js";
+export type { ToolRenderer, ToolRendererProps, HeaderChipsFn } from "../../client/src/components/tool-renderers/types.js";
