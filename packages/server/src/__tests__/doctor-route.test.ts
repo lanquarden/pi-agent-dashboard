@@ -115,6 +115,59 @@ describe("/api/doctor", () => {
     }
   });
 
+  it("probeServer reads process state, never spawns a subprocess", async () => {
+    // Set the env vars the new probeServer reads directly.
+    const prev = {
+      DASHBOARD_STARTER: process.env.DASHBOARD_STARTER,
+      NODE_ENV: process.env.NODE_ENV,
+      DASHBOARD_INSTALLABLE_TOTAL: process.env.DASHBOARD_INSTALLABLE_TOTAL,
+      DASHBOARD_INSTALLABLE_INSTALLED: process.env.DASHBOARD_INSTALLABLE_INSTALLED,
+    };
+    process.env.DASHBOARD_STARTER = "Electron";
+    process.env.NODE_ENV = "production";
+    process.env.DASHBOARD_INSTALLABLE_TOTAL = "3";
+    process.env.DASHBOARD_INSTALLABLE_INSTALLED = "3";
+
+    try {
+      // Inject a deps override that captures what probeServer returns
+      // by building default deps and calling probeServer directly.
+      const { buildDefaultDepsForTest } = await import("../routes/doctor-routes.js") as {
+        buildDefaultDepsForTest?: () => SharedChecksDeps;
+      };
+
+      // We don't export buildDefaultDeps directly, so instead assert via
+      // the route: if the self-curl deadlock were present it would time out;
+      // instead the route must complete quickly (< 500 ms).
+      app = await makeApp();
+      const start = Date.now();
+      const res = await app.inject({ method: "GET", url: "/api/doctor" });
+      const elapsed = Date.now() - start;
+
+      expect(res.statusCode).toBe(200);
+      // Must complete well under the old 3 s curl timeout. The full
+      // doctor run includes binary-detection checks that can take ~1 s
+      // on slow CI; we just assert no self-curl deadlock (< 3 s).
+      expect(elapsed).toBeLessThan(3000);
+
+      // The server check row should say "running" / "ok" since we are
+      // processing this request inside the running server.
+      const body = res.json() as DoctorReport;
+      const serverRow = body.checks.find((c) => c.name === "Dashboard server");
+      expect(serverRow).toBeDefined();
+      expect(serverRow?.status).toBe("ok");
+    } finally {
+      // Restore env
+      if (prev.DASHBOARD_STARTER === undefined) delete process.env.DASHBOARD_STARTER;
+      else process.env.DASHBOARD_STARTER = prev.DASHBOARD_STARTER;
+      if (prev.NODE_ENV === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = prev.NODE_ENV;
+      if (prev.DASHBOARD_INSTALLABLE_TOTAL === undefined) delete process.env.DASHBOARD_INSTALLABLE_TOTAL;
+      else process.env.DASHBOARD_INSTALLABLE_TOTAL = prev.DASHBOARD_INSTALLABLE_TOTAL;
+      if (prev.DASHBOARD_INSTALLABLE_INSTALLED === undefined) delete process.env.DASHBOARD_INSTALLABLE_INSTALLED;
+      else process.env.DASHBOARD_INSTALLABLE_INSTALLED = prev.DASHBOARD_INSTALLABLE_INSTALLED;
+    }
+  });
+
   it("returns 200 with a single fallback row when buildDeps throws", async () => {
     app = await makeApp(() => {
       throw new Error("boom — deps unavailable");

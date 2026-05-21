@@ -20,6 +20,7 @@ import crypto from "node:crypto";
 import {
   discoverPlugins,
   clearDiscoveryCache,
+  findInstalledPluginsDir,
   pluginRegistryHash,
 } from "../server/loader.js";
 import { validateManifest } from "../manifest-validator.js";
@@ -37,21 +38,54 @@ interface PluginEntry {
   manifest: PluginManifest;
   packageDir: string;
   clientEntryPath?: string;
+  hasSideEffects?: boolean;
+  toolRenderers?: Array<{ toolName: string; component: string }>;
 }
 
 function loadPluginEntries(repoRoot: string, isProd: boolean): PluginEntry[] {
   clearDiscoveryCache();
   const discovered = discoverPlugins(repoRoot);
+  // Also scan ~/.pi/dashboard/plugins/ (user-installed) — monorepo-id takes precedence.
+  const installedDir = findInstalledPluginsDir();
+  if (installedDir) {
+    const monorepoIds = new Set(discovered.map(p => p.manifest.id));
+    clearDiscoveryCache();
+    for (const p of discoverPlugins()) {
+      if (!monorepoIds.has(p.manifest.id)) discovered.push(p);
+    }
+    clearDiscoveryCache();
+  }
   return discovered
     .filter(p => {
       if (isProd && p.manifest.fixture === true) return false;
       return Boolean(p.clientEntryPath);
     })
-    .map(p => ({
-      manifest: p.manifest,
-      packageDir: p.packageDir,
-      clientEntryPath: p.clientEntryPath,
-    }));
+    .map(p => {
+      // Detect sideEffects: true in the plugin's package.json so the
+      // generated registry emits a bare side-effect import that prevents
+      // Rollup from tree-shaking top-level registration calls.
+      let hasSideEffects = false;
+      let toolRenderers: Array<{ toolName: string; component: string }> = [];
+      try {
+        const pkgPath = path.join(p.packageDir, "package.json");
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+        hasSideEffects = pkg.sideEffects === true;
+        // Read toolRenderers from the pi-dashboard-plugin manifest in package.json
+        const rawManifest = pkg["pi-dashboard-plugin"];
+        if (rawManifest?.toolRenderers && Array.isArray(rawManifest.toolRenderers)) {
+          toolRenderers = rawManifest.toolRenderers.filter(
+            (tr: any) => typeof tr.toolName === "string" && typeof tr.component === "string",
+          );
+        }
+      } catch { /* ignore */ }
+      return {
+        manifest: p.manifest,
+        packageDir: p.packageDir,
+        clientEntryPath: p.clientEntryPath,
+        hasSideEffects,
+        toolRenderers,
+      };
+    });
 }
 
 /**
@@ -136,11 +170,14 @@ function generateRegistryContent(entries: PluginEntry[], outDir: string): string
     // Vite resolves the path either way via configured extensions.
     const importPath = path.relative(outDir, entry.clientEntryPath!).replace(/\.(tsx?|jsx?)$/, "");
     const namedRefs = [
-      ...new Set(
-        entry.manifest.claims
+      ...new Set([
+        ...entry.manifest.claims
           .flatMap(c => [c.component, c.predicate, c.shouldRender])
           .filter((c): c is string => Boolean(c)),
-      ),
+        // Include toolRenderer components so they are imported and available
+        // for explicit registration calls below.
+        ...(entry.toolRenderers ?? []).map(tr => tr.component),
+      ]),
     ];
 
     if (namedRefs.length === 0) continue;
@@ -167,6 +204,12 @@ function generateRegistryContent(entries: PluginEntry[], outDir: string): string
       }
     }
 
+    // When a plugin declares sideEffects: true, emit a bare side-effect
+    // import so Rollup preserves top-level registration calls (e.g.
+    // registerToolRenderer) that aren't referenced by any named import.
+    if (entry.hasSideEffects) {
+      lines.push(`import ${JSON.stringify(importPath)}; // side-effects`);
+    }
     lines.push(
       `import { ${namedRefs.join(", ")} } from ${JSON.stringify(importPath)};`,
     );
@@ -205,6 +248,19 @@ function generateRegistryContent(entries: PluginEntry[], outDir: string): string
 
   lines.push("];");
   lines.push("");
+
+  // Emit explicit registerToolRenderer calls for plugins declaring toolRenderers
+  // in their manifest. This avoids tree-shaking issues with side-effect imports.
+  const hasToolRenderers = entries.some(e => (e.toolRenderers ?? []).length > 0);
+  if (hasToolRenderers) {
+    lines.push(`import { registerToolRenderer } from "../components/tool-renderers/registry.js";`);
+    for (const entry of entries) {
+      for (const tr of entry.toolRenderers ?? []) {
+        lines.push(`registerToolRenderer(${JSON.stringify(tr.toolName)}, ${tr.component});`);
+      }
+    }
+    lines.push("");
+  }
   // Build-time hash of the registry. The client compares this against the
   // server's live `/api/health.bundleHash` to detect a stale plugin bundle.
   // See change: fix-pi-flows-end-to-end (Group 6).

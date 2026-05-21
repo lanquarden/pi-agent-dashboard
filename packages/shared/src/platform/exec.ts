@@ -21,11 +21,13 @@
  */
 import {
   execSync as nodeExecSync,
+  execFileSync as nodeExecFileSync,
   exec as nodeExec,
   execFile as nodeExecFile,
   spawnSync as nodeSpawnSync,
   spawn as nodeSpawn,
   type ExecSyncOptions,
+  type ExecFileSyncOptions,
   type ExecOptions,
   type ExecFileOptions,
   type SpawnSyncOptions,
@@ -127,6 +129,25 @@ export function execSync(
   return nodeExecSync(command, withHide(options));
 }
 
+/** Wrapped `execFileSync`. Always `windowsHide: true` unless overridden. */
+export function execFileSync(
+  file: string,
+  args: readonly string[] | undefined,
+  options: ExecFileSyncOptions & { encoding: BufferEncoding },
+): string;
+export function execFileSync(
+  file: string,
+  args?: readonly string[],
+  options?: ExecFileSyncOptions,
+): Buffer | string;
+export function execFileSync(
+  file: string,
+  args?: readonly string[],
+  options?: ExecFileSyncOptions,
+): Buffer | string {
+  return nodeExecFileSync(file, args ?? [], withHide(options));
+}
+
 /** Wrapped `spawnSync`. Always `windowsHide: true` unless overridden. */
 export function spawnSync<T extends string | Buffer = Buffer>(
   command: string,
@@ -211,6 +232,7 @@ export const execFileAsync = promisify(execFile) as unknown as (
 
 export type {
   ExecSyncOptions,
+  ExecFileSyncOptions,
   ExecOptions,
   ExecFileOptions,
   SpawnSyncOptions,

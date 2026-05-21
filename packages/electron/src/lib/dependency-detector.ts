@@ -10,9 +10,8 @@
  *
  * See change: consolidate-tool-resolution.
  */
-import { execSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { execSync, execFileSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { execFileSync } from "node:child_process";
 import path from "node:path";
 import os from "node:os";
 import {

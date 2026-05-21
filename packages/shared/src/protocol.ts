@@ -14,6 +14,36 @@ export interface QueueStateEventData {
   pending: PendingPrompt[];
 }
 
+/**
+ * Bridge -> server: shape carried by `EventForwardMessage` with
+ * `event.eventType === "openspec:directory_hint"`.
+ *
+ * Any bridge extension MAY emit this event to request that the dashboard
+ * server immediately starts polling `path` for OpenSpec changes. The server:
+ * 1. Calls `directoryService.refreshOpenSpec(path)` (force mode, bypasses
+ *    the mtime gate) and adds `path` to the ongoing poll set.
+ * 2. Sets `session.openspecCwd = path` and broadcasts a `session_updated`
+ *    so the client resolves `openspecMap.get(session.openspecCwd)` instead
+ *    of `openspecMap.get(session.cwd)` for attach dialogs and session card.
+ *
+ * Intended for extensions that change the active working directory
+ * mid-session (e.g. git worktree activation) so the OpenSpec subcard
+ * reflects the new directory rather than the session `cwd`.
+ *
+ * The event is NOT stored in the session event store and NOT broadcast
+ * to browsers as a raw event — only the derived `session_updated` is sent.
+ *
+ * Example (from a bridge extension):
+ * ```ts
+ * pi.events.emit("openspec:directory_hint", { path: worktreePath });
+ * ```
+ *
+ * See change: openspec-directory-hint.
+ */
+export interface OpenSpecDirectoryHintEventData {
+  path: string;
+}
+
 // ── Extension → Server ──────────────────────────────────────────────
 
 export interface SessionRegisterMessage {

@@ -5,6 +5,8 @@ import { HonchoSettings, HonchoBadge, shouldRenderHonchoMemory, HonchoCardAction
 import { JjWorkspaceBadge, isInJjWorkspace, JjActionBar, isInJjRepo, JjInitAffordance, isInGitRepoButNotJj, JjWorkspaceList, JjWorkspaceView, JjPluginSettings } from "../../../jj-plugin/src/client/index";
 import { BuiltInRolesSettings } from "../../../roles-plugin/src/index";
 import { FlowsAnthropicBridgeSettings } from "../../../flows-anthropic-bridge-plugin/src/client";
+import "/home/lanquarden/.pi/dashboard/plugins/pi-dev-worktrees/src/client/index"; // side-effects
+import { PiDevWorktreesBadge, hasPiDevWorktrees, EnhancedBashToolRenderer } from "/home/lanquarden/.pi/dashboard/plugins/pi-dev-worktrees/src/client/index";
 
 import type { PluginManifest } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
 import type { ClaimEntry } from "@blackbelt-technology/dashboard-plugin-runtime";
@@ -204,6 +206,27 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
       { pluginId: "flows-anthropic-bridge", priority: 500, slot: "settings-section", tab: "general", Component: FlowsAnthropicBridgeSettings },
     ],
   },
+  {
+    manifest: {
+        "id": "pi-dev-worktrees",
+        "displayName": "pi-dev-worktrees Workspace",
+        "priority": 100,
+        "claims": [
+            {
+                "slot": "session-card-badge",
+                "component": "PiDevWorktreesBadge",
+                "predicate": "hasPiDevWorktrees"
+            }
+        ],
+        "client": "./src/client/index.tsx"
+    },
+    claims: [
+      { pluginId: "pi-dev-worktrees", priority: 100, slot: "session-card-badge", Component: PiDevWorktreesBadge, predicate: hasPiDevWorktrees },
+    ],
+  },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "1e3b455427f528aca4561caeac1f3138ca46cb5346b65d31001933038603680f";
+import { registerToolRenderer } from "../components/tool-renderers/registry.js";
+registerToolRenderer("bash", EnhancedBashToolRenderer);
+
+export const PLUGIN_REGISTRY_HASH = "56e6c244f09460bd7f3410aaf3bb488b5d3c2282540aa5e68e7591bd4bdb0fff";

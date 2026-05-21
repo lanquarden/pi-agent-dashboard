@@ -44,17 +44,22 @@ describe("registerPluginBridge", () => {
   });
 
   it("returns conflict when entry exists with different path", () => {
-    registerPluginBridge("demo", "/old/bridge.js", { homedir });
-    const result = registerPluginBridge("demo", "/new/bridge.js", { homedir });
+    // The on-disk path must exist for a real conflict (otherwise the
+    // self-heal path silently replaces — see add-plugin-activation-ui).
+    const oldPath = path.join(tmpDir, "old-bridge.js");
+    const newPath = path.join(tmpDir, "new-bridge.js");
+    fs.writeFileSync(oldPath, "// existing bridge");
+    registerPluginBridge("demo", oldPath, { homedir });
+    const result = registerPluginBridge("demo", newPath, { homedir });
     expect(result.type).toBe("conflict");
     if (result.type === "conflict") {
-      expect(result.existingPath).toBe("/old/bridge.js");
-      expect(result.newPath).toBe("/new/bridge.js");
+      expect(result.existingPath).toBe(oldPath);
+      expect(result.newPath).toBe(newPath);
     }
     // Should not overwrite
     const s = readSettings();
     const managed = s.dashboardPluginBridges as Record<string, string>;
-    expect(managed["dashboard-demo"]).toBe("/old/bridge.js");
+    expect(managed["dashboard-demo"]).toBe(oldPath);
   });
 
   it("appends managed bridge to packages[] while preserving user-owned entries", () => {

@@ -57,7 +57,7 @@ log("Importing lib modules...");
 import { isFirstRun, writeModeFile } from "./lib/wizard-state.js";
 import { openWizardWindow, getWizardWindow } from "./lib/wizard-window.js";
 import { registerWizardIpc } from "./lib/wizard-ipc.js";
-import { ensureServer, stopServerIfNeeded, didWeStartServer, loadMinimalConfig, setSpawnedPid, requestServerLaunch, isManagedServerRunning, readServerLogTail, onLaunchStatus } from "./lib/server-lifecycle.js";
+import { ensureServer, stopServerIfNeeded, didWeStartServer, loadMinimalConfig, setSpawnedPid, requestServerLaunch, isManagedServerRunning, readServerLogTail, onLaunchStatus, setGracefulShutdownInProgress, isGracefulShutdownInProgress, makeServerWatchdog } from "./lib/server-lifecycle.js";
 import { showDoctorDialog } from "./lib/app-menu.js";
 import { isDashboardRunning } from "./lib/health-check.js";
 import { detectPi, detectBridgeExtension } from "./lib/dependency-detector.js";
@@ -404,6 +404,9 @@ function startUpdaters(): void {
 
 async function quit(): Promise<void> {
   isQuitting = true;
+  // Signal watchdog before stopping server so a graceful shutdown is not
+  // misidentified as a crash. See change: harvest-bootstrap-survivor-fixes.
+  setGracefulShutdownInProgress(true);
   cleanupUpdateChecker?.();
   cleanupAutoUpdater?.();
   await stopServerIfNeeded();
@@ -480,7 +483,21 @@ async function main(): Promise<void> {
         const spawnResult = await spawnFromSource(
           source as Exclude<typeof source, { kind: "attach" }>,
           { port: config.port, piPort: config.piPort },
-          { logFile },
+          {
+            logFile,
+            onChildExit: makeServerWatchdog({
+              isGraceful: isGracefulShutdownInProgress,
+              log,
+              onCrash: (_code, _signal) => {
+                // Show loading page so the user can retry.
+                // Guard against mainWindow already closed during quit.
+                const win = mainWindow;
+                if (win && !win.isDestroyed()) {
+                  showLoadingPage(win, `http://localhost:${config.port}`);
+                }
+              },
+            }),
+          },
         );
         spawnedPid = spawnResult.pid;
         log(`[launch-source-v2] spawned server pid=${spawnedPid}`);

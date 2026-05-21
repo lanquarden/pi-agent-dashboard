@@ -1827,3 +1827,7 @@ See change: fix-pi-flows-end-to-end.
 
 Cross-refs:
 - packages/roles-plugin/src/RolesSettingsSection.tsx
+
+## Why does Doctor sometimes show server "Not running" while dashboard works?
+
+Old bug: `probeServer` inside `/api/doctor` shelled out `curl http://localhost:8000/api/health` via `execSync`. Server was handling the request when curl called — self-deadlock. After 3 s timeout, curl failed and probe reported "Not running". Fixed in change `harvest-bootstrap-survivor-fixes`: server-side probe reads process state directly; Electron Doctor uses native `fetch`. No subprocess spawned. Result: Doctor reports "ok" correctly while server handles load.

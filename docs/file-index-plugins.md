@@ -8,6 +8,7 @@
 
 | File | Purpose |
 |------|---------|
+| `packages/dashboard-plugin-runtime/src/index.ts` | Barrel export. Re-exports `registerToolRenderer`, `getToolRenderer`, `ToolRendererProps` from client tool-renderer registry — plugin tool-renderer enrichment primitive. See change: bash-dispatch-chips. |
 | `packages/dashboard-plugin-runtime/src/slot-registry.ts` | `createSlotRegistry()` — typed `Map<SlotId, ClaimEntry[]>` pre-sorted by `(priority, pluginId)`. Filter helpers: `forSession`, `forFolder`, `forCommand`, `forTab`, `forToolName`. `ClaimEntry.shouldRender?: (props) => boolean` plus `forSessionRendered(claims, session)` apply predicate AND shouldRender. See change: auto-hide-empty-session-subcards. `ClaimEntry<S extends SlotId>` generic; `predicate?`/`shouldRender?` method-shorthand (bivariant). See change: slot-generic-claim-entry. Adds `setEnabledSet(ids: Set<string>)` + internal enabled-filter in `getClaims`/`getAllClaims` so disabled plugins contribute zero claims at runtime. Adds `getAllPluginsForActivationUi()` returning every registered plugin (enabled or not) for `PluginsSection` list. Driven from client by `usePluginEnabledSet`. See change: add-plugin-activation-ui. |
 | `packages/dashboard-plugin-runtime/src/manifest-validator.ts` | Hand-rolled manifest validator. Throws `ManifestValidationError` with `pluginId` + `reason`. No Zod dep. Validates optional `requires` shape: `piExtensions`/`binaries`/`services` each must be `string[]` when present. See change: add-plugin-activation-ui. |
 | `packages/dashboard-plugin-runtime/src/plugin-context.tsx` | `PluginContextProvider`, `CurrentPluginLayer`, `usePluginConfig<T>()`, `useAllSessions`, `useSessionState`, `usePluginLogger`, `usePluginSend`, `usePluginRouter`, `useSlotRegistry`, `applyPluginConfigUpdate`. Per-plugin context layer scopes hooks to contributing plugin's id. |
@@ -45,3 +46,14 @@
 | `packages/shared/src/dashboard-plugin/ui-primitives.ts` | Defines `UI_PRIMITIVE_KEYS` + `UiPrimitiveMap` + per-primitive prop interfaces (`UiAgentCardProps`, `UiMarkdownContentProps`, `UiConfirmDialogProps`, `UiDialogPortalProps`, `UiSearchableSelectDialogProps`, `UiZoomControlsProps`, format helpers). Adds `modelSelector: "ui:model-selector"` key + `UiModelSelectorProps {current?, models?, onSelect(modelLabel)}`; imports `ModelInfo` from `../types.js`. See change: add-ui-model-selector-primitive. |
 | `docs/plugin-claim-gates.md` | `predicate` vs. `shouldRender` contract for plugin claims. See change: auto-hide-empty-session-subcards. |
 | **Moved to flows-plugin** | `FlowDashboard.tsx` → `packages/flows-plugin/src/client/FlowDashboard.tsx` (sticky flow card grid above ChatView). `FlowAgentCard.tsx` (status/tools/tokens). `FlowAgentDetail.tsx` (full content-area). `FlowSummary.tsx` (post-completion summary). `FlowActivityBadge.tsx` (session card badge). `FlowLaunchDialog.tsx` (task input). `SessionFlowActions.tsx` (searchable picker). `FlowGraph.tsx`, `FlowArchitect.tsx`, `FlowTabBar.tsx`. All moved via `git mv` (history preserved). Shell still imports them directly via `@blackbelt-technology/pi-dashboard-flows-plugin/client` — JSX-to-slot-consumer migration deferred. See change: extract-flows-as-plugin. |
+
+
+## Pattern: plugin tool-renderer enrichment
+
+Plugins enrich built-in tool cards using three parts:
+
+1. **Extension side**: emit `pi.events.emit("plugin-id:event-name", { toolCallId, ...payload })` from `tool_call` handler. Bridge forwards automatically as `event_forward` (zero bridge changes needed).
+2. **Client reducer** (`src/client/lib/event-reducer.ts`): generic `event_forward` handler extracts `toolCallId` from payload. If tool row exists, patches `args._pluginData[eventType]` in place. If row not yet created, buffers in `pendingEnrichments` (`Map<toolCallId, Map<eventType, data>>`); applied when `tool_execution_start` arrives. Multiple plugins annotate same row independently via namespaced keys.
+3. **Plugin runtime**: call `registerToolRenderer("bash", EnhancedRenderer)` at module load. Re-exported from `@blackbelt-technology/dashboard-plugin-runtime`. Renderer reads `args._pluginData?.["plugin-id:event-name"]` and renders enrichments; delegates to original renderer when absent.
+
+See `openspec/changes/bash-dispatch-chips/` for canonical example (`pi-dev-worktrees:bash-dispatch` event, `EnhancedBashToolRenderer`).

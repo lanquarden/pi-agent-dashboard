@@ -1,0 +1,81 @@
+/**
+ * Unit tests for `dashboard-paths.ts` helpers.
+ *
+ * Pins each getter accepts a `{ homedir }` override and falls back to
+ * `os.homedir()` when none is provided. Asserts that the live server
+ * log path and the legacy installer log path resolve to *distinct*
+ * files even though both end in `server.log`.
+ *
+ * See change: harvest-bootstrap-survivor-fixes (cherry-pick 1).
+ */
+import os from "node:os";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
+import {
+  getDashboardConfigDir,
+  getDashboardServerLogPath,
+  getInstallerLogPath,
+  getManagedDir,
+} from "../dashboard-paths.js";
+
+describe("dashboard-paths getters", () => {
+  describe("getDashboardConfigDir", () => {
+    it("no-arg resolves to ~/.pi/dashboard", () => {
+      expect(getDashboardConfigDir()).toBe(path.join(os.homedir(), ".pi", "dashboard"));
+    });
+    it("honours { homedir } override", () => {
+      expect(getDashboardConfigDir({ homedir: "/fake/home" })).toBe(
+        path.join("/fake/home", ".pi", "dashboard"),
+      );
+    });
+  });
+
+  describe("getDashboardServerLogPath", () => {
+    it("no-arg resolves to ~/.pi/dashboard/server.log", () => {
+      expect(getDashboardServerLogPath()).toBe(
+        path.join(os.homedir(), ".pi", "dashboard", "server.log"),
+      );
+    });
+    it("honours { homedir } override", () => {
+      expect(getDashboardServerLogPath({ homedir: "/fake/home" })).toBe(
+        path.join("/fake/home", ".pi", "dashboard", "server.log"),
+      );
+    });
+  });
+
+  describe("getManagedDir (re-export)", () => {
+    it("no-arg resolves to ~/.pi-dashboard", () => {
+      expect(getManagedDir()).toBe(path.join(os.homedir(), ".pi-dashboard"));
+    });
+    it("honours { homedir } override", () => {
+      expect(getManagedDir({ homedir: "/fake/home" })).toBe(
+        path.join("/fake/home", ".pi-dashboard"),
+      );
+    });
+  });
+
+  describe("getInstallerLogPath", () => {
+    it("no-arg resolves to ~/.pi-dashboard/server.log", () => {
+      expect(getInstallerLogPath()).toBe(
+        path.join(os.homedir(), ".pi-dashboard", "server.log"),
+      );
+    });
+    it("honours { homedir } override", () => {
+      expect(getInstallerLogPath({ homedir: "/fake/home" })).toBe(
+        path.join("/fake/home", ".pi-dashboard", "server.log"),
+      );
+    });
+  });
+
+  describe("live server log vs installer log are distinct", () => {
+    it("the two log paths must never collide for the same homedir", () => {
+      const serverLog = getDashboardServerLogPath({ homedir: "/fake/home" });
+      const installerLog = getInstallerLogPath({ homedir: "/fake/home" });
+      expect(serverLog).not.toBe(installerLog);
+      // Different parent dirs even though both basename to server.log
+      expect(path.basename(serverLog)).toBe("server.log");
+      expect(path.basename(installerLog)).toBe("server.log");
+      expect(path.dirname(serverLog)).not.toBe(path.dirname(installerLog));
+    });
+  });
+});

@@ -152,6 +152,28 @@ export function wireEvents(deps: EventWiringDeps): void {
         }
         return;
       }
+      // Generic OpenSpec directory hint emitted by bridge extensions.
+      // NOT stored in event store, NOT broadcast to browsers.
+      // Any extension may emit openspec:directory_hint { path } to request
+      // an immediate forced OpenSpec poll for a directory other than
+      // session.cwd (e.g. an activated git worktree). Also records
+      // openspecCwd on the session so the client resolves the correct
+      // openspecMap entry for attach dialogs and session card display.
+      // See change: openspec-directory-hint.
+      if (msg.event.eventType === "openspec:directory_hint") {
+        const data = (msg.event.data ?? {}) as { path?: unknown };
+        if (typeof data.path === "string" && data.path.length > 0) {
+          const hintedPath = data.path;
+          directoryService.refreshOpenSpec(hintedPath).then((openspecData) => {
+            browserGateway.broadcastToAll({ type: "openspec_update", cwd: hintedPath, data: openspecData } as any);
+          }).catch(() => { /* poll failure is non-fatal */ });
+          sessionManager.update(sessionId, { openspecCwd: hintedPath });
+          if (!replayingSessions.has(sessionId)) {
+            browserGateway.broadcastSessionUpdated(sessionId, { openspecCwd: hintedPath });
+          }
+        }
+        return;
+      }
       // When canSkipWipe was true, the event store already has all events —
       // don't insert replayed events again (would cause exponential duplication)
       if (replayingSessions.has(sessionId) && skipReplayInsert.has(sessionId)) {

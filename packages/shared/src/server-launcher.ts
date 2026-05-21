@@ -136,6 +136,19 @@ export interface LaunchOpts {
   _now?: () => number;
   /** Override the sleep function used between polls. */
   _sleep?: (ms: number) => Promise<void>;
+  /**
+   * Called once when the spawned child exits (any exit — crash or graceful).
+   * Attached via `child.on("exit", …)` before the readiness loop so the
+   * handler fires even if the child exits during the health-wait window.
+   * No-op when omitted — existing callers are unaffected.
+   *
+   * Callers that need to distinguish crash from graceful shutdown should
+   * maintain their own flag (see `setGracefulShutdownInProgress` in
+   * `electron/server-lifecycle.ts`) and consult it inside the callback.
+   *
+   * See change: harvest-bootstrap-survivor-fixes (cherry-pick 6a).
+   */
+  onChildExit?: (code: number | null, signal: NodeJS.Signals | null) => void;
 }
 
 export interface LaunchResult {
@@ -241,6 +254,13 @@ export async function launchDashboardServer(opts: LaunchOpts): Promise<LaunchRes
   }
 
   try { child.unref(); } catch { /* ignore */ }
+
+  // Attach caller's exit handler before the readiness loop so it fires
+  // even for exits that happen during the health-wait window.
+  // See change: harvest-bootstrap-survivor-fixes (cherry-pick 6a).
+  if (opts.onChildExit) {
+    child.once("exit", opts.onChildExit);
+  }
 
   if (!child.pid) {
     throw new EarlyExitError(child.exitCode ?? null, child.signalCode ?? null);

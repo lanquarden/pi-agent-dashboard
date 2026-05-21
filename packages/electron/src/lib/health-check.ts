@@ -1,45 +1,20 @@
 /**
  * Dashboard server health check.
- * Extracted from server-lifecycle.ts so both main.ts and server-lifecycle.ts can use it.
  *
- * NOTE: This module must NOT import from @blackbelt-technology/pi-dashboard-shared.
- * In the packaged Electron app, those packages are not on the ESM module resolution path.
+ * Thin re-export over `@blackbelt-technology/pi-dashboard-shared/server-identity.js`
+ * so the Electron main process and the dashboard server share a single
+ * retry-aware probe implementation.
+ *
+ * The shared module is reachable from packaged Electron (other modules
+ * under `lib/` — wizard-ipc, server-lifecycle, dependency-detector,
+ * doctor, update-checker, launch-source, doctor-window — already import
+ * shared submodules; the historical "MUST NOT import from shared" note
+ * no longer applies).
+ *
+ * See change: harvest-bootstrap-survivor-fixes (cherry-pick 3).
  */
-
-export interface DashboardStatus {
-  running: boolean;
-  pid?: number;
-  version?: string;
-  portConflict?: boolean;
-}
-
-/**
- * Check if the dashboard server is running on the given port.
- * Uses a 2-second timeout. ECONNREFUSED returns immediately.
- */
-export async function isDashboardRunning(port: number): Promise<DashboardStatus> {
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 2000);
-    const res = await fetch(`http://localhost:${port}/api/health`, {
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
-
-    if (!res.ok) return { running: false, portConflict: true };
-
-    const data = await res.json() as Record<string, unknown>;
-    if (data && data.ok === true && typeof data.pid === "number") {
-      const version = typeof data.version === "string" ? data.version : undefined;
-      return { running: true, pid: data.pid, version };
-    }
-    // HTTP 200 but not our format — another service on this port
-    return { running: false, portConflict: true };
-  } catch (err: any) {
-    if (err?.cause?.code === "ECONNREFUSED") {
-      return { running: false };
-    }
-    // Timeout or network error — port might be in use
-    return { running: false };
-  }
-}
+export type {
+  DashboardStatus,
+  DashboardCheckOpts,
+} from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
+export { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";

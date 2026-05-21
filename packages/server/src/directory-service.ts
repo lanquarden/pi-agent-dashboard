@@ -252,7 +252,10 @@ export function createDirectoryService(
   function computeKnownDirectories(): string[] {
     const dirs = new Set<string>();
     for (const dir of preferencesStore.getPinnedDirectories()) dirs.add(dir);
-    for (const session of sessionManager.listAll()) dirs.add(session.cwd);
+    for (const session of sessionManager.listAll()) {
+      dirs.add(session.cwd);
+      if (session.openspecCwd) dirs.add(session.openspecCwd);
+    }
     return Array.from(dirs);
   }
 

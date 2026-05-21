@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { useRoute, useLocation, useSearchParams, Redirect, Switch, Route } from "wouter";
 import { useWebSocket } from "./hooks/useWebSocket.js";
 import { useSidebarState } from "./hooks/useSidebarState.js";
+import { useDocumentTitle } from "./hooks/useDocumentTitle.js";
 import { SessionList } from "./components/SessionList.js";
 import { ResizableSidebar } from "./components/ResizableSidebar.js";
 import { HamburgerButton, MobileOverlay } from "./components/MobileOverlay.js";
@@ -676,6 +677,7 @@ export default function App() {
   // change: pluginize-flows-via-registry.
 
   const selectedSession = selectedId ? sessions.get(selectedId) : undefined;
+  useDocumentTitle(selectedSession);
   const selectedCwd = selectedSession?.cwd;
   const editorCwds = useMemo(() => selectedCwd ? [selectedCwd] : [], [selectedCwd]);
   const editorMap = useEditors(editorCwds);
@@ -938,7 +940,7 @@ export default function App() {
         onResume={selectedId ? (mode) => handleResumeSession(selectedId, mode) : undefined}
         mobileActions={isMobile ? {
           editors: selectedCwd ? editorMap.get(selectedCwd) : undefined,
-          openspecChanges: selectedCwd ? openspecMap.get(selectedCwd)?.changes : undefined,
+          openspecChanges: selectedCwd ? openspecMap.get(selectedSession?.openspecCwd ?? selectedCwd)?.changes : undefined,
           onHide: () => handleHideSession(selectedId),
           onUnhide: () => handleUnhideSession(selectedId),
           onResume: (mode) => handleResumeSession(selectedId, mode),
@@ -949,7 +951,7 @@ export default function App() {
           onAttachProposal: (changeName) => handleAttachProposal(selectedId, changeName),
           onDetachProposal: () => handleDetachProposal(selectedId),
           onSendPrompt: (text) => wrappedHandleSend(text),
-          onReadArtifact: (changeName, artifactId) => handleReadArtifact(selectedCwd!, changeName, artifactId),
+          onReadArtifact: (changeName, artifactId) => handleReadArtifact(selectedSession?.openspecCwd ?? selectedCwd!, changeName, artifactId),
           onRefresh: () => {
             setSessionStates((prev) => {
               const next = new Map(prev);
@@ -964,10 +966,10 @@ export default function App() {
         } : undefined}
         commands={selectedCommands}
         onSendPrompt={wrappedHandleSend}
-        openspecChanges={selectedCwd ? openspecMap.get(selectedCwd)?.changes : undefined}
+        openspecChanges={selectedCwd ? openspecMap.get(selectedSession?.openspecCwd ?? selectedCwd)?.changes : undefined}
         onAttachProposal={(changeName) => handleAttachProposal(selectedId, changeName)}
         onDetachProposal={() => handleDetachProposal(selectedId)}
-        onReadArtifact={selectedCwd ? (changeName, artifactId) => handleReadArtifact(selectedCwd, changeName, artifactId) : undefined}
+        onReadArtifact={selectedCwd ? (changeName, artifactId) => handleReadArtifact(selectedSession?.openspecCwd ?? selectedCwd, changeName, artifactId) : undefined}
         hasFileChanges={selectedState.hasFileChanges}
         onOpenDiffView={() => navigate(buildSessionDiffUrl(selectedId))}
         onOpenExtensionModulePicker={() => setExtensionModulePickerOpen(true)}

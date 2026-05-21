@@ -109,7 +109,7 @@ When `SessionState.subagents[agentId].entries` is a non-empty array of `Subagent
 
 ### Requirement: `SubagentDetailView` SHALL gracefully degrade when `entries[]` is absent
 
-When the producer hasn't streamed `entries[]` (e.g. user has `@tintinweb/pi-subagents` installed but not `pi-dashboard-agent`), the detail view SHALL fall back to summary content with a footnote.
+When the producer hasn't streamed `entries[]` (e.g. user has `@tintinweb/pi-subagents` installed but not `pi-dashboard-subagents`), the detail view SHALL fall back to summary content with a footnote.
 
 #### Scenario: Running, no entries
 

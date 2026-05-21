@@ -202,6 +202,41 @@ describe("launchDashboardServer — env merge", () => {
   });
 });
 
+describe("launchDashboardServer — onChildExit (cherry-pick 6a)", () => {
+  it("invokes onChildExit when child emits exit after readiness", async () => {
+    const child = makeFakeChild();
+    const onChildExit = vi.fn();
+    await launchDashboardServer(baseOpts({
+      _spawnNodeScript: spawnSpy(() => child),
+      onChildExit,
+    }));
+    // Simulate post-readiness crash
+    (child as unknown as EventEmitter).emit("exit", 1, null);
+    expect(onChildExit).toHaveBeenCalledOnce();
+    expect(onChildExit).toHaveBeenCalledWith(1, null);
+  });
+
+  it("fires only once even if exit emitted twice", async () => {
+    const child = makeFakeChild();
+    const onChildExit = vi.fn();
+    await launchDashboardServer(baseOpts({
+      _spawnNodeScript: spawnSpy(() => child),
+      onChildExit,
+    }));
+    (child as unknown as EventEmitter).emit("exit", 0, null);
+    (child as unknown as EventEmitter).emit("exit", 0, null);
+    expect(onChildExit).toHaveBeenCalledOnce(); // child.once not child.on
+  });
+
+  it("does NOT attach any listener when onChildExit omitted", async () => {
+    const child = makeFakeChild();
+    const listenersBefore = (child as unknown as EventEmitter).listenerCount("exit");
+    await launchDashboardServer(baseOpts({ _spawnNodeScript: spawnSpy(() => child) }));
+    const listenersAfter = (child as unknown as EventEmitter).listenerCount("exit");
+    expect(listenersAfter).toBe(listenersBefore);
+  });
+});
+
 describe("launchDashboardServer — entry URL-wrapping", () => {
   // The launcher delegates to spawnNodeScript, which uses
   // `shouldUrlWrapEntry(loader, platform)`. We verify the launcher

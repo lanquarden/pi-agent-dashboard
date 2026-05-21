@@ -8,7 +8,7 @@
  * on the ESM module resolution path. All config reading and health checking is inlined.
  */
 import { spawnDetached, waitForReady } from "@blackbelt-technology/pi-dashboard-shared/platform/detached-spawn.js";
-import { execFileSync } from "node:child_process";
+import { execFileSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { existsSync, mkdirSync, openSync, writeFileSync, readFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -20,6 +20,7 @@ import {
   EarlyExitError,
 } from "@blackbelt-technology/pi-dashboard-shared/server-launcher.js";
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
+import { getDashboardServerLogPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { readModeFile } from "./wizard-state.js";
@@ -62,11 +63,71 @@ let serverStartedByUs = false;
 let storedSpawnedPid: number | null = null;
 
 /**
+ * Set to `true` immediately before Electron initiates an intentional
+ * shutdown (app `before-quit`, programmatic restart). The watchdog inspects
+ * this flag to distinguish graceful exits from crashes — a graceful exit
+ * MUST NOT trigger the loading-page recovery flow.
+ *
+ * Reset to `false` after every successful `setSpawnedPid` call so that a
+ * programmatic restart (spawn-new-child) re-arms crash detection.
+ *
+ * See change: harvest-bootstrap-survivor-fixes (cherry-pick 6b).
+ */
+let gracefulShutdownInProgress = false;
+
+export function setGracefulShutdownInProgress(value: boolean): void {
+  gracefulShutdownInProgress = value;
+}
+
+export function isGracefulShutdownInProgress(): boolean {
+  return gracefulShutdownInProgress;
+}
+
+/**
  * Record the PID of the server we spawned (V2 launch path).
- * Called from main.ts after spawnFromSource succeeds.
+ * Called from main.ts after spawnFromSource succeeds. Resets the graceful
+ * flag so the watchdog re-arms for the new child.
  */
 export function setSpawnedPid(pid: number): void {
   storedSpawnedPid = pid;
+  gracefulShutdownInProgress = false;
+}
+
+/**
+ * Build the watchdog callback passed to `spawnFromSource` (via `onChildExit`)
+ * so an unexpected server-child exit routes the user to the loading-page
+ * recovery UI.
+ *
+ * Pure factory — all side-effecting deps are injected so unit tests can
+ * verify the graceful-vs-crashed routing decision without booting Electron.
+ *
+ * See change: harvest-bootstrap-survivor-fixes (cherry-pick 6b).
+ */
+export function makeServerWatchdog(deps: {
+  isGraceful: () => boolean;
+  log: (msg: string) => void;
+  onCrash: (code: number | null, signal: NodeJS.Signals | null) => void;
+}): (code: number | null, signal: NodeJS.Signals | null) => void {
+  return (code, signal) => {
+    if (deps.isGraceful()) {
+      deps.log(
+        `[server-lifecycle] server child exited gracefully code=${code} signal=${signal ?? "null"}`,
+      );
+      return;
+    }
+    deps.log(
+      `[server-lifecycle] server child exited unexpectedly code=${code} signal=${signal ?? "null"} — routing to recovery`,
+    );
+    try {
+      deps.onCrash(code, signal);
+    } catch (err) {
+      deps.log(
+        `[server-lifecycle] crash handler threw: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  };
 }
 
 /**
@@ -407,7 +468,7 @@ async function launchServer(port: number, piPort: number): Promise<void> {
   const managedModules = path.join(MANAGED_DIR, "node_modules");
   env.NODE_PATH = [bundledModules, managedModules, env.NODE_PATH || ""].filter(Boolean).join(path.delimiter);
 
-  const logFile = path.join(MANAGED_DIR, "server.log");
+  const logFile = getDashboardServerLogPath();
 
   try {
     await launchDashboardServer({
@@ -501,7 +562,7 @@ export async function isManagedServerRunning(): Promise<boolean> {
  * 8 KiB from the end of the file to bound memory.
  */
 export async function readServerLogTail(lines: number = 20): Promise<string> {
-  const logPath = path.join(MANAGED_DIR, "server.log");
+  const logPath = getDashboardServerLogPath();
   try {
     if (!existsSync(logPath)) return "";
     const fs = await import("node:fs/promises");

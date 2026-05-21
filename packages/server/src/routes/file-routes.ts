@@ -100,7 +100,11 @@ export function registerFileRoutes(
       }
 
       const allSessions = sessionManager.listAll();
-      if (!allSessions.some((s) => s.cwd === cwd)) {
+      const isCwdAllowed =
+        allSessions.some((s) => s.cwd === cwd) ||
+        allSessions.some((s) => s.openspecCwd === cwd) ||
+        preferencesStore.getPinnedDirectories().includes(cwd);
+      if (!isCwdAllowed) {
         reply.code(403);
         return { success: false, error: "unknown session path" } satisfies ApiResponse;
       }

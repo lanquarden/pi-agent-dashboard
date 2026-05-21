@@ -69,11 +69,16 @@ describe("bridge auto-register boot + disable lifecycle", () => {
   });
 
   it("surfaces path-mismatch conflict without overwriting", () => {
-    registerPluginBridge("openspec", "/old/bridge.js", { homedir });
-    const result = registerPluginBridge("openspec", "/new/bridge.js", { homedir });
+    // On-disk path must exist for a real conflict (self-heal would otherwise
+    // silently replace — see add-plugin-activation-ui).
+    const oldPath = path.join(tmpDir, "old-bridge.js");
+    const newPath = path.join(tmpDir, "new-bridge.js");
+    fs.writeFileSync(oldPath, "// existing bridge");
+    registerPluginBridge("openspec", oldPath, { homedir });
+    const result = registerPluginBridge("openspec", newPath, { homedir });
     expect(result.type).toBe("conflict");
     // Original path preserved
     const managed = listManagedBridges({ homedir });
-    expect(managed["dashboard-openspec"]).toBe("/old/bridge.js");
+    expect(managed["dashboard-openspec"]).toBe(oldPath);
   });
 });

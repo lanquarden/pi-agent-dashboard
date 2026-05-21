@@ -1,7 +1,7 @@
 /**
  * Wire-protocol types consumed by the subagents plugin.
  *
- * Producer of this contract: pi-dashboard-agent extension
+ * Producer of this contract: pi-dashboard-subagents extension
  *   (https://github.com/BlackBeltTechnology/pi-dashboard-agents)
  *
  * Lives in the plugin so producers can import from a single canonical
@@ -28,7 +28,7 @@ export interface SubagentState {
   durationMs?: number;
   tokens?: { input: number; output: number; total: number };
   toolUses?: number;
-  /** Full per-step timeline. Producer: pi-dashboard-agent extension. */
+  /** Full per-step timeline. Producer: pi-dashboard-subagents extension. */
   entries?: SubagentTimelineEntry[];
   /** Live current-activity string (e.g. "reading src/foo.ts"). */
   activity?: string;

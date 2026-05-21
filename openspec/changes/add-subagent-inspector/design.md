@@ -1,8 +1,8 @@
 ## Context
 
-Dashboard renders `Agent` tool calls (`@tintinweb/pi-subagents` or `pi-dashboard-agent`) as cards via `AgentToolRenderer`. Today the card is static — no way to see the subagent's actual reasoning, tool calls, or assistant text. This change adds inline expansion + a dedicated popout route so users can inspect a subagent's run in detail.
+Dashboard renders `Agent` tool calls (`@tintinweb/pi-subagents` or `pi-dashboard-subagents`) as cards via `AgentToolRenderer`. Today the card is static — no way to see the subagent's actual reasoning, tool calls, or assistant text. This change adds inline expansion + a dedicated popout route so users can inspect a subagent's run in detail.
 
-The producer of the rich timeline is the new `pi-dashboard-agent` extension (separate repo, foreground-only, in-memory spawn). Its wire contract is locked in `scaffold-foreground-subagent-extension` at `/home/skrot1/BB/pi-packages/pi-dashboard-agents/openspec/changes/`. This change consumes that contract.
+The producer of the rich timeline is the new `pi-dashboard-subagents` extension (separate repo, foreground-only, in-memory spawn). Its wire contract is locked in `scaffold-foreground-subagent-extension` at `/home/skrot1/BB/pi-packages/pi-dashboard-agents/openspec/changes/`. This change consumes that contract.
 
 ## Goals / Non-Goals
 
@@ -10,7 +10,7 @@ The producer of the rich timeline is the new `pi-dashboard-agent` extension (sep
 
 - Inline-expandable agent card with full timeline (tool / text / thinking / error).
 - Popout route `/session/:sid/subagent/:aid` so users can open the inspector in a new tab.
-- Graceful fallback when the timeline producer (`pi-dashboard-agent`) isn't installed — show summary + counters + upgrade footnote.
+- Graceful fallback when the timeline producer (`pi-dashboard-subagents`) isn't installed — show summary + counters + upgrade footnote.
 - `GetSubagentResultRenderer` gains a "Show details" affordance that opens the popout (relevant only for `@tintinweb/pi-subagents` coexistence).
 
 **Non-Goals:**
@@ -49,11 +49,11 @@ Rejected alternatives: floating draggable pane (worse multi-monitor, more React 
 - Tier 3 (completed/failed, no entries): result/error block.
 - Tier 4 (no useful data): "No detail available yet."
 
-Lets the dashboard work both with `pi-dashboard-agent` (Tier 1) and `@tintinweb/pi-subagents` (Tier 2/3) without code branching at the renderer level.
+Lets the dashboard work both with `pi-dashboard-subagents` (Tier 1) and `@tintinweb/pi-subagents` (Tier 2/3) without code branching at the renderer level.
 
 ### Decision 4: Background-subagents UI dropped
 
-Originally this change included a `BackgroundSubagentsPill` in the status bar listing in-flight background subagents. That has been **removed entirely** because the new producer (`pi-dashboard-agent`) is foreground-only. The pill had no data source under the new architecture. If a future producer needs background visibility, it can be added back as a separate change.
+Originally this change included a `BackgroundSubagentsPill` in the status bar listing in-flight background subagents. That has been **removed entirely** because the new producer (`pi-dashboard-subagents`) is foreground-only. The pill had no data source under the new architecture. If a future producer needs background visibility, it can be added back as a separate change.
 
 ### Decision 5: `ToolContext` carries `sessionId` + `session`
 
@@ -83,21 +83,21 @@ Merge semantics: when both a live `subagent_completed` and a backfill from `tool
 
 | Risk | Mitigation |
 |---|---|
-| User opens popout but doesn't have `pi-dashboard-agent` installed → empty timeline | Tier-2 footnote tells them what to install. |
+| User opens popout but doesn't have `pi-dashboard-subagents` installed → empty timeline | Tier-2 footnote tells them what to install. |
 | Parent session deleted/archived while popout is open | "Parent session not found" empty state with explicit "close this tab" CTA. |
 | Popout URL gets stale when sessionId is reassigned | Acceptable — same behavior as any session URL today. |
 | App.tsx wiring is not yet shipped (see proposal.md "Status") | Commit is flagged WIP. Components are inert without wiring; no regression vs. before this change. |
-| Producer wire-format changes break this consumer | The contract is locked in `pi-dashboard-agent`'s openspec; both repos must move together for breaking changes. |
+| Producer wire-format changes break this consumer | The contract is locked in `pi-dashboard-subagents`'s openspec; both repos must move together for breaking changes. |
 | Backfill writes to subagents map could race with live `subagent_*` events for the same id | Merge semantics in Decision 7 preserve non-undefined prior fields, making live + replay paths commutative. |
 | Mid-flight subagent state is still lost on refresh (only completed runs survive via backfill) | Acceptable for v0.1.x — producer is foreground-only and runs are short. Tracked as Open Question; future change can add a server-side replay buffer if needed. |
 
 ## Migration Plan
 
-None. Pure additive change. No state migration. No protocol breakage. Users with only `@tintinweb/pi-subagents` installed see Tier-2 fallback; users who add `pi-dashboard-agent` see Tier-1 automatically.
+None. Pure additive change. No state migration. No protocol breakage. Users with only `@tintinweb/pi-subagents` installed see Tier-2 fallback; users who add `pi-dashboard-subagents` see Tier-1 automatically.
 
 ## Open Questions (resolved)
 
 - ~~Should the pill show completed background subagents?~~ — N/A, pill dropped.
 - ~~Should the popout show on session end?~~ — Yes, the popout subscribes independently; the dashboard's session-ended status doesn't unmount it.
-- Should the Tier-2 upgrade footnote eventually be removed? — Yes, in a follow-up once `pi-dashboard-agent` is the de-facto producer (tasks.md §10.3).
+- Should the Tier-2 upgrade footnote eventually be removed? — Yes, in a follow-up once `pi-dashboard-subagents` is the de-facto producer (tasks.md §10.3).
 - Should mid-flight subagents survive a dashboard refresh (i.e. a refresh while the subagent is still running, before the parent has written the tool result to JSONL)? — Out of scope here; would require a server-side per-session ring buffer of recent `subagent_*` events keyed by `agentId`, drained on `subagent_completed/failed`. Tracked as a candidate follow-up change.

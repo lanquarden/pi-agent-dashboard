@@ -70,27 +70,32 @@ function buildDefaultDeps(): SharedChecksDeps {
     detectOpenSpec: () => detectOnPath("openspec"),
     isApiKeyConfigured,
     probeServer: async () => {
-      const r = safeExec("curl -sf http://localhost:8000/api/health", { timeoutMs: 3000 });
-      if (!r.ok || !r.stdout.trim()) return { running: false };
-      try {
-        const h = JSON.parse(r.stdout);
-        return {
-          running: true,
-          version: typeof h.version === "string" ? h.version : undefined,
-          mode: typeof h.mode === "string" ? h.mode : undefined,
-          starter: typeof h.starter === "string" ? h.starter : null,
-          installable:
-            h.installable && typeof h.installable === "object"
-              ? {
-                  total: h.installable.total ?? 0,
-                  installed: h.installable.installed ?? 0,
-                  failed: Array.isArray(h.installable.failed) ? h.installable.failed : [],
-                }
-              : null,
-        };
-      } catch {
-        return { running: true };
-      }
+      // CRITICAL: do NOT shell out to `curl http://localhost:8000/api/health`
+      // here. `safeExec` uses synchronous `execSync`, which blocks the Node
+      // event loop until the child exits. The child is curl, talking back
+      // to *this same Node process* — a self-deadlock. curl waits for the
+      // server to respond, server is blocked in execSync, after 3 s the
+      // timeout kills curl and the probe falsely reports "Not running".
+      //
+      // Since we are currently handling an HTTP request, by definition the
+      // server IS running. Read process-resident health data directly
+      // instead of round-tripping through HTTP.
+      //
+      // See change: harvest-bootstrap-survivor-fixes (cherry-pick 5).
+      const installable =
+        process.env.DASHBOARD_INSTALLABLE_TOTAL !== undefined
+          ? {
+              total: Number(process.env.DASHBOARD_INSTALLABLE_TOTAL ?? 0),
+              installed: Number(process.env.DASHBOARD_INSTALLABLE_INSTALLED ?? 0),
+              failed: [] as string[],
+            }
+          : null;
+      return {
+        running: true,
+        starter: process.env.DASHBOARD_STARTER ?? null,
+        mode: process.env.NODE_ENV === "development" ? "dev" : "production",
+        installable,
+      };
     },
   };
 }

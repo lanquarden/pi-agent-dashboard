@@ -83,9 +83,9 @@
 
 ## 10. Producer dependency
 
-- [x] 10.1 Documented in proposal.md that `pi-dashboard-agent` v0.1.x is the producer.
+- [x] 10.1 Documented in proposal.md that `pi-dashboard-subagents` v0.1.x is the producer.
 - [x] 10.2 Cross-referenced the scaffold change in the other repo.
-- [ ] 10.3 (FUTURE) Once `pi-dashboard-agent` v0.1.x is published, drop the upgrade-footnote from `SubagentDetailView` Tier 2 path (entries will reliably be present).
+- [ ] 10.3 (FUTURE) Once `pi-dashboard-subagents` v0.1.x is published, drop the upgrade-footnote from `SubagentDetailView` Tier 2 path (entries will reliably be present).
 
 ## 12. Reducer backfill from `tool_execution_end` (PENDING)
 

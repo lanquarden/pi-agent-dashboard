@@ -12,7 +12,7 @@ We need a subagent inspector that lets users:
 - **Pop out** the inspector to a dedicated route (`/session/<sid>/subagent/<aid>`) for full-window viewing in a new tab.
 - See the agent's source `.md` file path so they can open the definition (e.g. `~/.pi/agent/agents/Explore.md`).
 
-This change establishes the dashboard-side consumer contract. The producer is the new `pi-dashboard-agent` extension (separate repo at `/home/skrot1/BB/pi-packages/pi-dashboard-agents/`), which spawns subagents in-memory via `createAgentSession` and emits `subagents:*` events on pi's event bus carrying the full timeline.
+This change establishes the dashboard-side consumer contract. The producer is the new `pi-dashboard-subagents` extension (separate repo at `/home/skrot1/BB/pi-packages/pi-dashboard-agents/`), which spawns subagents in-memory via `createAgentSession` and emits `subagents:*` events on pi's event bus carrying the full timeline.
 
 The inspector code lives in its **own workspace plugin package** `packages/subagents-plugin/` — analogous to `packages/flows-plugin/` — so:
 
@@ -67,7 +67,7 @@ This change is **committed but unfinished**. Specifically:
 
 ### Modified Capabilities
 
-- `agent-tool-rendering` — extends with inline-expand, popout button, popout route, and the data-shape contract for `SubagentTimelineEntry`. The renderer/route code now lives in the `subagents-plugin` workspace package; the shell imports from it. Producer of the entries is `pi-dashboard-agent` v0.1.x. `@tintinweb/pi-subagents` only streams summary data, so the inspector falls back to a "Showing summary; install pi-dashboard-agent for full timeline" footnote when entries[] is absent.
+- `agent-tool-rendering` — extends with inline-expand, popout button, popout route, and the data-shape contract for `SubagentTimelineEntry`. The renderer/route code now lives in the `subagents-plugin` workspace package; the shell imports from it. Producer of the entries is `pi-dashboard-subagents` v0.1.x. `@tintinweb/pi-subagents` only streams summary data, so the inspector falls back to a "Showing summary; install pi-dashboard-subagents for full timeline" footnote when entries[] is absent.
 
 ## Impact
 
@@ -79,12 +79,12 @@ This change is **committed but unfinished**. Specifically:
 
 ## Out of scope
 
-- **Background subagents**: the producer (`pi-dashboard-agent`) is foreground-only by design. The original v1 of this change included a status-bar pill listing background subagents — that's been dropped.
-- **`get_subagent_result` / `steer_subagent` tools**: these are `@tintinweb/pi-subagents`-specific and not produced by `pi-dashboard-agent`. The renderer for `get_subagent_result` is retained to keep `@tintinweb/pi-subagents` coexistence working.
-- **Upstream prompt-cache fork**: orthogonal concern owned by `pi-dashboard-agent`. Not visible at the dashboard layer.
+- **Background subagents**: the producer (`pi-dashboard-subagents`) is foreground-only by design. The original v1 of this change included a status-bar pill listing background subagents — that's been dropped.
+- **`get_subagent_result` / `steer_subagent` tools**: these are `@tintinweb/pi-subagents`-specific and not produced by `pi-dashboard-subagents`. The renderer for `get_subagent_result` is retained to keep `@tintinweb/pi-subagents` coexistence working.
+- **Upstream prompt-cache fork**: orthogonal concern owned by `pi-dashboard-subagents`. Not visible at the dashboard layer.
 - **Moving the AgentToolRenderer + GetSubagentResultRenderer + SteerSubagentRenderer + reducer slice into the plugin**: covered by the separate `extract-subagents-as-plugin` change. That change supplements (not supersedes) this one — they compose.
 
 ## Dependencies
 
-- `pi-dashboard-agent` v0.1.x — the producer of `entries[]`. Until users install this extension, the dashboard shows Tier-2 fallback (activity + counts + footnote). The contract is documented in `/home/skrot1/BB/pi-packages/pi-dashboard-agents/openspec/changes/scaffold-foreground-subagent-extension/`.
+- `pi-dashboard-subagents` v0.1.x — the producer of `entries[]`. Until users install this extension, the dashboard shows Tier-2 fallback (activity + counts + footnote). The contract is documented in `/home/skrot1/BB/pi-packages/pi-dashboard-agents/openspec/changes/scaffold-foreground-subagent-extension/`.
 - `extract-subagents-as-plugin` — separate change that completes the plugin extraction (moves renderers + reducer slice). After both changes land, the shell has no subagent-specific code at all.

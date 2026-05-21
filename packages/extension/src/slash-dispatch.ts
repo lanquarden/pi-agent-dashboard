@@ -9,8 +9,9 @@
  *     → emit `dispatch_extension_command` to the server (server forwards to
  *     the per-session RPC keeper UDS and emits the terminal command_feedback).
  *   - Path D: `pi.dispatchCommand` absent AND the bridge is NOT headless
- *     (tmux / wt) OR no `connection` was supplied → return `false` so the
- *     caller falls through to its template-expansion / sendUserMessage path.
+ *     (tmux / wt) OR no `connection` was supplied → emit
+ *     `command_feedback {status:"error"}` with a hint to enable
+ *     `useRpcKeeper: true` for headless sessions.
  *     Note: pi.sendUserMessage() hardcodes expandPromptTemplates: false, which
  *     skips _tryExecuteExtensionCommand; extension commands sent this way
  *     become regular LLM messages. This is a pi limitation — the bridge has
@@ -65,8 +66,8 @@ function emitFeedback(
  * Try to dispatch a slash command as an extension command.
  *
  * @returns `true` if the helper handled the text (extension command detected;
- *          dispatch attempted or stopgap emitted). The caller MUST NOT fall
- *          through to template expansion or `sendUserMessage`.
+ *          dispatch attempted or error feedback emitted). The caller MUST NOT
+ *          fall through to template expansion or `sendUserMessage`.
  * @returns `false` if `text` is not an extension slash command. The caller
  *          SHOULD continue with its existing fallback path.
  */

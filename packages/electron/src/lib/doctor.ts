@@ -120,35 +120,60 @@ export async function checkManagedNodeRuntime(opts?: {
   };
 }
 
-/** Probe the dashboard server's /api/health endpoint via curl through safeExec. */
-function probeServer(): Promise<{
+/**
+ * Probe the dashboard server's /api/health endpoint via native fetch.
+ *
+ * Previously shelled out to `curl -sf` via `safeExec`. That was fragile:
+ * the macOS app bundle's PATH (`/usr/bin:/bin:/usr/sbin:/sbin`) does carry
+ * `/usr/bin/curl`, but `safeExec` runs through `execSync` which spawns
+ * `/bin/sh -c`. Any flake in the shell child (PATH resolution, transient
+ * sandbox condition, short timeout vs. busy openspec-poll tick) yields
+ * `ok: false` and the renderer surfaces a false WARN ("GET .../api/health
+ * returned no response") while the server is actually healthy.
+ *
+ * Native `fetch` (Node 18+) talks loopback directly with no subprocess and
+ * no PATH lookup. AbortController gives us the same 3 s budget without
+ * relying on execSync's timeout semantics.
+ *
+ * See change: harvest-bootstrap-survivor-fixes (cherry-pick 4).
+ */
+async function probeServer(): Promise<{
   running: boolean;
   version?: string;
   mode?: string;
   starter?: string | null;
   installable?: { total: number; installed: number; failed: string[] } | null;
 }> {
-  const r = safeExec("curl -sf http://localhost:8000/api/health 2>/dev/null", { timeoutMs: 3000 });
-  if (!r.ok || !r.stdout.trim()) return Promise.resolve({ running: false });
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 3000);
+  let body: unknown = null;
   try {
-    const health = JSON.parse(r.stdout);
-    return Promise.resolve({
-      running: true,
-      version: typeof health.version === "string" ? health.version : undefined,
-      mode: typeof health.mode === "string" ? health.mode : undefined,
-      starter: typeof health.starter === "string" ? health.starter : null,
-      installable:
-        health.installable && typeof health.installable === "object"
-          ? {
-              total: health.installable.total ?? 0,
-              installed: health.installable.installed ?? 0,
-              failed: Array.isArray(health.installable.failed) ? health.installable.failed : [],
-            }
-          : null,
-    });
+    const res = await fetch("http://localhost:8000/api/health", { signal: ctrl.signal });
+    if (!res.ok) return { running: false };
+    body = await res.json().catch(() => null);
   } catch {
-    return Promise.resolve({ running: true });
+    return { running: false };
+  } finally {
+    clearTimeout(timer);
   }
+  const health = body as Record<string, unknown> | null;
+  if (!health) return { running: true };
+  return {
+    running: true,
+    version: typeof health.version === "string" ? health.version : undefined,
+    mode: typeof health.mode === "string" ? health.mode : undefined,
+    starter: typeof health.starter === "string" ? health.starter : null,
+    installable:
+      health.installable && typeof health.installable === "object"
+        ? {
+            total: (health.installable as { total?: number }).total ?? 0,
+            installed: (health.installable as { installed?: number }).installed ?? 0,
+            failed: Array.isArray((health.installable as { failed?: unknown }).failed)
+              ? ((health.installable as { failed: string[] }).failed)
+              : [],
+          }
+        : null,
+  };
 }
 
 /** Run all doctor checks. Wraps the body in try/catch so the renderer
