@@ -236,7 +236,8 @@ export function MicButton({ session, onInsertText }: SlotProps<"command-input-ac
         if (text) onInsertText?.(text);
         else console.warn("[voice-input] transcription produced empty text — model may not be processing audio correctly");
       } else {
-        // Server-side: send audio chunks to dashboard server via plugin WebSocket
+        // Server-side: send audio chunks to dashboard server via plugin WebSocket.
+        // The server accumulates chunks and transcribes when `final: true`.
         const base64Chunks = allChunks.map((chunk) => {
           const bytes = new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
           return btoa(String.fromCharCode(...bytes));
@@ -251,11 +252,25 @@ export function MicButton({ session, onInsertText }: SlotProps<"command-input-ac
           });
         }
 
-        // Server responds with `voice_input_transcript` — handled by the
-        // useEffect listener above that watches the "voice-input-transcript"
-        // DOM CustomEvent dispatched by useMessageHandler.
-        // Keep a short settle window so the server has time to process.
-        await new Promise((resolve) => setTimeout(resolve, 200));
+        // Wait for the server's `voice_input_transcript` response (dispatched
+        // as a DOM CustomEvent by useMessageHandler). The useEffect listener
+        // sets status and inserts text when the transcript arrives.
+        await new Promise<void>((resolve) => {
+          let done = false;
+          function onTranscript(e: Event) {
+            if (done) return;
+            const detail = (e as CustomEvent).detail as {
+              sessionId: string; text: string; partial: boolean; error?: string;
+            };
+            if (detail.sessionId !== session.id) return;
+            if (!detail.partial) {
+              done = true;
+              window.removeEventListener("voice-input-transcript", onTranscript);
+              resolve();
+            }
+          }
+          window.addEventListener("voice-input-transcript", onTranscript);
+        });
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);

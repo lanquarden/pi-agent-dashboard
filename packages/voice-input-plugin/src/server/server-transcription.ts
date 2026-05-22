@@ -7,14 +7,12 @@
  *
  * Parakeet ONNX path:
  *   1. Download model files (encoder, decoder, tokenizer) from HuggingFace
- *   2. Mel spectrogram preprocessing (pure JS, matching parakeet.js mel.js)
- *   3. Encoder inference → decoder inference with state handoff → tokenizer → text
- *
- * The mel preprocessing is a port of the parakeet.js JsPreprocessor, keeping the
- * same Slaney mel filterbank, Hann window STFT, and CMVN normalization.
+ *   2. Mel spectrogram preprocessing via parakeet.js JsPreprocessor (128 bins)
+ *   3. Encoder inference → per-frame TDT decoder loop → tokenizer → text
  */
 // @ts-nocheck — onnxruntime-node types are loaded at runtime
 import * as ort from "onnxruntime-node";
+import { JsPreprocessor } from "parakeet.js";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -32,367 +30,244 @@ export interface VoiceInputServerConfig {
   parakeetModelUrl: string;
 }
 
-interface StreamingDecoderState {
-  previousState: ort.InferenceSession.OnnxValueMapType | null;
-  timeOffset: number;
-  totalWords: Array<{ text: string; start_time?: number; end_time?: number }>;
+interface ModelCache {
+  encoderSession: ort.InferenceSession;
+  joinerSession: ort.InferenceSession;
+  tokenizer: { id2token: string[]; token2id: Record<string, number>; blankId: number };
 }
 
-// ── Mel spectrogram constants (matching parakeet.js mel.js) ──────────────────
-
+// Model parameters for parakeet-tdt-0.6b-v3 (from parakeet.js MODELS config)
+const N_MELS = 128;
+const SUBSAMPLING = 8;
+const PRED_HIDDEN = 640;
+const PRED_LAYERS = 2;
 const SAMPLE_RATE = 16000;
-const N_FFT = 512;
-const WIN_LENGTH = 400;
-const HOP_LENGTH = 160;
-const PREEMPH = 0.97;
-const LOG_ZERO_GUARD = 2 ** -24;
-const N_FREQ_BINS = (N_FFT >> 1) + 1; // 257
-const N_MELS = 80;
-
-// ── Slaney Mel Scale ─────────────────────────────────────────────────────────
-
-const F_SP = 200.0 / 3;
-const MIN_LOG_HZ = 1000.0;
-const MIN_LOG_MEL = MIN_LOG_HZ / F_SP;
-const LOG_STEP = Math.log(6.4) / 27.0;
-
-function hzToMel(freq: number): number {
-  return freq >= MIN_LOG_HZ
-    ? MIN_LOG_MEL + Math.log(freq / MIN_LOG_HZ) / LOG_STEP
-    : freq / F_SP;
-}
-
-function melToHz(mel: number): number {
-  return mel >= MIN_LOG_MEL
-    ? MIN_LOG_HZ * Math.exp(LOG_STEP * (mel - MIN_LOG_MEL))
-    : mel * F_SP;
-}
-
-// ── Cached filterbank ────────────────────────────────────────────────────────
-
-let _melFilterbank: Float32Array | null = null;
-
-function getMelFilterbank(): Float32Array {
-  if (_melFilterbank) return _melFilterbank;
-
-  const fMin = 0;
-  const fMax = SAMPLE_RATE / 2;
-  const nMels = N_MELS;
-
-  // Linearly spaced frequency bins
-  const allFreqs = new Float64Array(N_FREQ_BINS);
-  for (let i = 0; i < N_FREQ_BINS; i++) {
-    allFreqs[i] = (fMax * i) / (N_FREQ_BINS - 1);
-  }
-
-  // Mel-spaced center frequencies
-  const melMin = hzToMel(fMin);
-  const melMax = hzToMel(fMax);
-  const nPoints = nMels + 2;
-  const fPts = new Float64Array(nPoints);
-  for (let i = 0; i < nPoints; i++) {
-    fPts[i] = melToHz(melMin + ((melMax - melMin) * i) / (nPoints - 1));
-  }
-
-  // Build triangular filterbank
-  const fb = new Float32Array(nMels * N_FREQ_BINS);
-  for (let m = 0; m < nMels; m++) {
-    const left = fPts[m];
-    const center = fPts[m + 1];
-    const right = fPts[m + 2];
-    const denomLeft = center - left;
-    const denomRight = right - center;
-
-    for (let k = 0; k < N_FREQ_BINS; k++) {
-      const freq = allFreqs[k];
-      if (freq >= left && freq <= center && denomLeft > 0) {
-        fb[m * N_FREQ_BINS + k] = (freq - left) / denomLeft;
-      } else if (freq > center && freq <= right && denomRight > 0) {
-        fb[m * N_FREQ_BINS + k] = (right - freq) / denomRight;
-      }
-    }
-  }
-
-  // Slaney normalization: each filter summed to 1
-  for (let m = 0; m < nMels; m++) {
-    let sum = 0;
-    for (let k = 0; k < N_FREQ_BINS; k++) {
-      sum += fb[m * N_FREQ_BINS + k];
-    }
-    if (sum > 0) {
-      for (let k = 0; k < N_FREQ_BINS; k++) {
-        fb[m * N_FREQ_BINS + k] /= sum;
-      }
-    }
-  }
-
-  _melFilterbank = fb;
-  return fb;
-}
-
-// ── Hann window (cached) ─────────────────────────────────────────────────────
-
-let _hannWindow: Float64Array | null = null;
-
-function getHannWindow(): Float64Array {
-  if (_hannWindow) return _hannWindow;
-  const win = new Float64Array(WIN_LENGTH);
-  for (let i = 0; i < WIN_LENGTH; i++) {
-    win[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (WIN_LENGTH - 1)));
-  }
-  _hannWindow = win;
-  return win;
-}
-
-// ── Real FFT via N/2-point complex FFT (matching parakeet.js) ────────────────
-
-function fft(re: Float64Array, im: Float64Array): void {
-  const n = re.length;
-  // Bit-reversal permutation
-  for (let i = 1, j = 0; i < n; i++) {
-    let bit = n >> 1;
-    for (; j & bit; bit >>= 1) j ^= bit;
-    j ^= bit;
-    if (i < j) {
-      [re[i], re[j]] = [re[j], re[i]];
-      [im[i], im[j]] = [im[j], im[i]];
-    }
-  }
-  // Cooley-Tukey
-  for (let len = 2; len <= n; len <<= 1) {
-    const half = len >> 1;
-    const angle = (-2 * Math.PI) / len;
-    for (let i = 0; i < n; i += len) {
-      for (let j = 0; j < half; j++) {
-        const cos = Math.cos(angle * j);
-        const sin = Math.sin(angle * j);
-        const tr = re[i + j + half] * cos - im[i + j + half] * sin;
-        const ti = re[i + j + half] * sin + im[i + j + half] * cos;
-        re[i + j + half] = re[i + j] - tr;
-        im[i + j + half] = im[i + j] - ti;
-        re[i + j] += tr;
-        im[i + j] += ti;
-      }
-    }
-  }
-}
-
-// ── Mel spectrogram computation ──────────────────────────────────────────────
-
-/**
- * Compute log-mel spectrogram from 16kHz mono PCM audio.
- * Matches the parakeet.js JsPreprocessor output exactly.
- *
- * Pipeline:
- *   1. Pre-emphasis: x[n] -= 0.97 * x[n-1]
- *   2. Zero-pad: N_FFT/2 = 256 samples each side
- *   3. STFT with Hann window, hop_length=160
- *   4. Power spectrum: |real|² + |imag|²
- *   5. Mel filterbank MatMul
- *   6. Log(mel + 2^-24)
- *   7. Per-feature mean/variance normalization
- *
- * @returns Float32Array [nFrames, N_MELS] row-major
- */
-export function computeMelSpectrogram(audio: Float32Array): Float32Array {
-  const samples = new Float64Array(audio.length);
-
-  // Pre-emphasis
-  samples[0] = audio[0];
-  for (let i = 1; i < audio.length; i++) {
-    samples[i] = audio[i] - PREEMPH * audio[i - 1];
-  }
-
-  // Zero-pad: 256 samples each side
-  const padLen = N_FFT >> 1; // 256
-  const hopLen = HOP_LENGTH; // 160
-  const nFrames = Math.floor((samples.length - WIN_LENGTH) / hopLen) + 1;
-
-  const hann = getHannWindow();
-  const filterbank = getMelFilterbank();
-  const nMels = N_MELS;
-
-  // Guard against audio too short for even one frame
-  if (nFrames <= 0) {
-    return new Float32Array(0);
-  }
-
-  // STFT with zero-padding
-  const spectrogram = new Float32Array(nFrames * nMels);
-
-  for (let frame = 0; frame < nFrames; frame++) {
-    const start = frame * hopLen;
-
-    // Window + zero-pad to N_FFT
-    const re = new Float64Array(N_FFT);
-    const im = new Float64Array(N_FFT); // all zeros
-
-    for (let i = 0; i < WIN_LENGTH; i++) {
-      const sampleIdx = start + i - padLen;
-      if (sampleIdx >= 0 && sampleIdx < samples.length) {
-        re[i + padLen] = samples[sampleIdx] * hann[i];
-      }
-    }
-
-    // Real FFT via complex FFT of half size
-    // Pack real sequence into N_FFT/2 complex
-    const halfN = N_FFT >> 1;
-    const cre = new Float64Array(halfN);
-    const cim = new Float64Array(halfN);
-    for (let i = 0; i < halfN; i++) {
-      cre[i] = re[2 * i];
-      cim[i] = re[2 * i + 1];
-    }
-    fft(cre, cim);
-
-    // Reconstruct N_FFT-point spectrum from half-size FFT
-    // DC and Nyquist
-    const power = new Float32Array(N_FREQ_BINS);
-    power[0] = (cre[0] + cim[0]) * (cre[0] + cim[0]) + 0; // DC
-    power[N_FREQ_BINS - 1] = (cre[0] - cim[0]) * (cre[0] - cim[0]) + 0; // Nyquist
-
-    for (let k = 1; k < halfN; k++) {
-      const r = (cre[k] + cre[halfN - k]) * 0.5;
-      const i = (cim[k] - cim[halfN - k]) * 0.5;
-      const sr = (cim[k] + cim[halfN - k]) * 0.5;
-      const si = (cre[halfN - k] - cre[k]) * 0.5;
-      const cos = Math.cos((Math.PI * k) / halfN);
-      const sin = Math.sin((Math.PI * k) / halfN);
-      const real = r + sr * cos - si * sin;
-      const imag = i + sr * sin + si * cos;
-      power[k] = real * real + imag * imag;
-    }
-
-    // Mel filterbank multiply
-    const melFrame = new Float32Array(nMels);
-    for (let m = 0; m < nMels; m++) {
-      let acc = 0;
-      for (let k = 0; k < N_FREQ_BINS; k++) {
-        acc += power[k] * filterbank[m * N_FREQ_BINS + k];
-      }
-      melFrame[m] = acc;
-    }
-
-    // Log
-    for (let m = 0; m < nMels; m++) {
-      melFrame[m] = Math.log(Math.max(melFrame[m], 0) + LOG_ZERO_GUARD);
-    }
-
-    // Store row
-    const offset = frame * nMels;
-    for (let m = 0; m < nMels; m++) {
-      spectrogram[offset + m] = melFrame[m];
-    }
-  }
-
-  // Per-feature mean/std normalization (Bessel corrected)
-  for (let m = 0; m < nMels; m++) {
-    let sum = 0;
-    let validFrames = 0;
-    for (let f = 0; f < nFrames; f++) {
-      sum += spectrogram[f * nMels + m];
-      validFrames++;
-    }
-    if (validFrames < 2) continue;
-    const mean = sum / validFrames;
-    let varSum = 0;
-    for (let f = 0; f < nFrames; f++) {
-      const diff = spectrogram[f * nMels + m] - mean;
-      varSum += diff * diff;
-    }
-    const std = Math.sqrt(varSum / (validFrames - 1));
-    if (std > 0) {
-      for (let f = 0; f < nFrames; f++) {
-        spectrogram[f * nMels + m] = (spectrogram[f * nMels + m] - mean) / std;
-      }
-    }
-  }
-
-  return spectrogram;
-}
 
 // ── Model management ─────────────────────────────────────────────────────────
 
-interface ModelCache {
-  encoderSession: ort.InferenceSession | null;
-  decoderSession: ort.InferenceSession | null;
-  tokenizerVocab: string[] | null;
-  blankId: number;
-}
-
 let _modelCache: ModelCache | null = null;
+let _modelLoadPromise: Promise<ModelCache> | null = null;
 
 /**
  * Download Parakeet ONNX model files from HuggingFace and create ONNX sessions.
+ * Uses int8 quantized models for speed and size.
  * Files are cached on disk at ~/.pi/dashboard/voice-input-models/.
+ * Guarded against concurrent calls during first load.
  */
 async function ensureParakeetModel(repoId: string): Promise<ModelCache> {
   if (_modelCache) return _modelCache;
+  if (_modelLoadPromise) return _modelLoadPromise;
 
-  const modelDir = path.join(os.homedir(), ".pi", "dashboard", "voice-input-models", repoId.replace("/", "_"));
-  await mkdir(modelDir, { recursive: true });
+  _modelLoadPromise = (async () => {
+    const modelDir = path.join(os.homedir(), ".pi", "dashboard", "voice-input-models", repoId.replace("/", "_"));
+    await mkdir(modelDir, { recursive: true });
 
-  const encoderPath = path.join(modelDir, "encoder-model.onnx");
-  const decoderPath = path.join(modelDir, "decoder_joint-model.onnx");
-  const vocabPath = path.join(modelDir, "vocab.txt");
+    const encoderPath = path.join(modelDir, "encoder-model.int8.onnx");
+    const decoderPath = path.join(modelDir, "decoder_joint-model.int8.onnx");
+    const vocabPath = path.join(modelDir, "vocab.txt");
 
-  // Download if not cached
-  const baseUrl = `https://huggingface.co/${repoId}/resolve/main`;
+    const baseUrl = `https://huggingface.co/${repoId}/resolve/main`;
 
-  async function downloadIfMissing(filePath: string, url: string): Promise<void> {
-    try {
-      await readFile(filePath);
-    } catch {
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`Failed to download ${url}: ${response.status} ${response.statusText}`);
+    async function downloadIfMissing(filePath: string, url: string): Promise<void> {
+      try { await readFile(filePath); } catch {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`Failed to download ${url}: ${response.status}`);
+        const buffer = Buffer.from(await response.arrayBuffer());
+        await writeFile(filePath, buffer);
       }
-      const buffer = Buffer.from(await response.arrayBuffer());
-      await writeFile(filePath, buffer);
+    }
+
+    await downloadIfMissing(encoderPath, `${baseUrl}/encoder-model.int8.onnx`);
+    await downloadIfMissing(decoderPath, `${baseUrl}/decoder_joint-model.int8.onnx`);
+    await downloadIfMissing(vocabPath, `${baseUrl}/vocab.txt`);
+
+    const sessionOpts = { executionProviders: ["cpu"] };
+    const [encoderSession, joinerSession] = await Promise.all([
+      ort.InferenceSession.create(encoderPath, sessionOpts),
+      ort.InferenceSession.create(decoderPath, sessionOpts),
+    ]);
+
+    // Load tokenizer vocabulary.
+    // Format: "token_string id" — one entry per line.
+    // IDs are non-sequential (e.g. "use 1163" at line 11 has id 1163).
+    const vocabText = await readFile(vocabPath, "utf-8");
+    const id2token: string[] = [];
+    for (const line of vocabText.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const lastSpace = trimmed.lastIndexOf(" ");
+      if (lastSpace < 0) continue;
+      const token = trimmed.slice(0, lastSpace);
+      const id = parseInt(trimmed.slice(lastSpace + 1), 10);
+      if (!isNaN(id)) id2token[id] = token;
+    }
+    const token2id: Record<string, number> = {};
+    for (let i = 0; i < id2token.length; i++) {
+      if (id2token[i] !== undefined) token2id[id2token[i]] = i;
+    }
+    const blankId = token2id["<blk>"] ?? 0;
+
+    _modelCache = { encoderSession, joinerSession, tokenizer: { id2token, token2id, blankId } };
+    return _modelCache;
+  })();
+
+  _modelLoadPromise = _modelLoadPromise.catch((err) => { _modelLoadPromise = null; throw err; });
+  return _modelLoadPromise;
+}
+
+// ── TDT Decoding (based on parakeet.js _runCombinedStep + transcribe) ────────
+
+/**
+ * Transcribe PCM audio using Parakeet ONNX via TDT frame-by-frame decoding.
+ *
+ * Algorithm:
+ *   1. JsPreprocessor computes 128-bin mel spectrogram
+ *   2. Encoder: mel features → encoded frames [1, D, T_enc]
+ *   3. For each encoded frame: run combined decoder step
+ *      - Feed: encoder frame [1, D, 1] + previous token + LSTM states
+ *      - Get: token logits + duration logits + new states
+ *      - Emit non-blank tokens; advance frames by predicted duration
+ */
+export async function transcribeWithParakeet(
+  samples: Float32Array,
+  config: VoiceInputServerConfig,
+): Promise<string> {
+  const repoId = config.parakeetModelRepo || "ysdede/parakeet-tdt-0.6b-v3-onnx";
+  const cache = await ensureParakeetModel(repoId);
+
+  // 1. Mel spectrogram via parakeet.js JsPreprocessor (128 bins, NeMo-style)
+  const preprocessor = new JsPreprocessor({ nMels: N_MELS, sampleRate: SAMPLE_RATE });
+  const { features, length: nFrames } = preprocessor.process(samples);
+
+  if (!features || !features.length || nFrames <= 0) return "";
+
+  // 2. Encoder: audio_signal [1, nMels, nFrames] + length [1] → outputs [1, D, T_enc]
+  const inputTensor = new ort.Tensor("float32", features, [1, N_MELS, nFrames]);
+  const lenTensor = new ort.Tensor("int64", BigInt64Array.from([BigInt(nFrames)]), [1]);
+
+  const encOut = await cache.encoderSession.run({
+    audio_signal: inputTensor,
+    length: lenTensor,
+  });
+  const enc = encOut["outputs"] ?? Object.values(encOut)[0];
+  inputTensor.dispose?.();
+  lenTensor.dispose?.();
+
+  // Encoder output: [1, D, T_enc] → transpose to [T_enc, D]
+  const [, D, Tenc] = enc.dims;
+  const encData = enc.data as Float32Array;
+  const transposed = new Float32Array(Tenc * D);
+  for (let t = 0; t < Tenc; t++) {
+    const tOff = t * D;
+    for (let d = 0; d < D; d++) {
+      transposed[tOff + d] = encData[d * Tenc + t];
     }
   }
+  enc.dispose?.();
 
-  await downloadIfMissing(encoderPath, `${baseUrl}/encoder-model.onnx`);
-  await downloadIfMissing(decoderPath, `${baseUrl}/decoder_joint-model.int8.onnx`);
-  await downloadIfMissing(vocabPath, `${baseUrl}/vocab.txt`);
+  // 3. Pre-allocate reusable tensors for the decoder loop
+  const encFrameBuf = new Float32Array(D);
+  const encFrameTensor = new ort.Tensor("float32", encFrameBuf, [1, D, 1]);
+  const targetIdArray = new Int32Array(1);
+  const targetTensor = new ort.Tensor("int32", targetIdArray, [1, 1]);
+  const targetLenArray = new Int32Array([1]);
+  const targetLenTensor = new ort.Tensor("int32", targetLenArray, [1]);
 
-  // Create ONNX sessions
-  const encoderSession = await ort.InferenceSession.create(encoderPath, {
-    executionProviders: ["cpu"],
-  });
-  const decoderSession = await ort.InferenceSession.create(decoderPath, {
-    executionProviders: ["cpu"],
-  });
+  // Zero LSTM states [numLayers, 1, hidden] = [2, 1, 640]
+  const stateSize = PRED_LAYERS * 1 * PRED_HIDDEN;
+  const stateDims = [PRED_LAYERS, 1, PRED_HIDDEN];
+  let curState1 = new ort.Tensor("float32", new Float32Array(stateSize), stateDims);
+  let curState2 = new ort.Tensor("float32", new Float32Array(stateSize), stateDims);
 
-  // Load tokenizer vocabulary
-  const vocabText = await readFile(vocabPath, "utf-8");
-  const vocab = vocabText.split("\n").filter((line) => line.trim().length > 0);
+  const vocabSize = cache.tokenizer.id2token.length;
+  const blankId = cache.tokenizer.blankId;
+  const tokenIds: number[] = [];
 
-  _modelCache = {
-    encoderSession,
-    decoderSession,
-    tokenizerVocab: vocab,
-    blankId: vocab.indexOf("<blank>") >= 0 ? vocab.indexOf("<blank>") : 0,
-  };
+  // 4. Decode frame-by-frame
+  let previousToken = blankId;
+  let t = 0;
+  while (t < Tenc) {
+    // Copy current encoder frame into reusable tensor
+    const frameStart = t * D;
+    encFrameBuf.set(transposed.subarray(frameStart, frameStart + D));
 
-  return _modelCache;
-}
+    // Set target to previous token
+    targetIdArray[0] = previousToken;
 
-// ── Streaming decoder state ──────────────────────────────────────────────────
+    const feeds: Record<string, ort.Tensor> = {
+      encoder_outputs: encFrameTensor,
+      targets: targetTensor,
+      target_length: targetLenTensor,
+      input_states_1: curState1,
+      input_states_2: curState2,
+    };
 
-const _decoderStates = new Map<string, StreamingDecoderState>();
+    const out = await cache.joinerSession.run(feeds);
+    const logits = out["outputs"];
+    const nextState1 = out["output_states_1"];
+    const nextState2 = out["output_states_2"];
 
-function getDecoderState(sessionId: string): StreamingDecoderState {
-  let state = _decoderStates.get(sessionId);
-  if (!state) {
-    state = { previousState: null, timeOffset: 0, totalWords: [] };
-    _decoderStates.set(sessionId, state);
+    if (!logits || !logits.data) break;
+
+    const data = logits.data as Float32Array;
+    // logits shape: [1, 1, vocabSize + durSize]
+    // First vocabSize entries = token logits, rest = duration logits
+    const durSize = data.length - vocabSize;
+
+    // Token argmax
+    let maxTokenId = blankId;
+    let maxTokenVal = -Infinity;
+    for (let v = 0; v < vocabSize; v++) {
+      if (data[v] > maxTokenVal) { maxTokenVal = data[v]; maxTokenId = v; }
+    }
+
+    // Duration argmax
+    let step = 0;
+    if (durSize > 0) {
+      let maxDurVal = -Infinity;
+      for (let d = 0; d < durSize; d++) {
+        if (data[vocabSize + d] > maxDurVal) { maxDurVal = data[vocabSize + d]; step = d; }
+      }
+    }
+
+    // Emit non-blank tokens
+    if (maxTokenId !== blankId) {
+      tokenIds.push(maxTokenId);
+      previousToken = maxTokenId;
+
+      // Update LSTM states only on non-blank (matching Python reference)
+      if (nextState1) {
+        curState1.dispose?.();
+        curState2.dispose?.();
+        curState1 = nextState1;
+        curState2 = nextState2;
+      }
+    }
+
+    logits.dispose?.();
+
+    // Advance frames by predicted duration (minimum 1 to avoid infinite loop)
+    t += Math.max(1, step);
   }
-  return state;
-}
 
-function resetDecoderState(sessionId: string): void {
-  _decoderStates.delete(sessionId);
+  // 5. Cleanup remaining tensors
+  curState1.dispose?.();
+  curState2.dispose?.();
+  if (curState1 !== encFrameTensor) encFrameTensor.dispose?.();
+  targetTensor.dispose?.();
+  targetLenTensor.dispose?.();
+
+  // 6. Decode tokens to text
+  let text = "";
+  for (const tid of tokenIds) {
+    const token = cache.tokenizer.id2token[tid] || "";
+    if (token === "<eos>" || token === "</s>") break;
+    text += token;
+  }
+  // Replace word boundary marker with space
+  text = text.replace(/▁/g, " ").trim();
+
+  return text;
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────
@@ -406,120 +281,10 @@ export async function initParakeetEngine(config: VoiceInputServerConfig): Promis
   await ensureParakeetModel(repoId);
 }
 
-/**
- * Transcribe base64-encoded PCM audio using Parakeet ONNX.
- *
- * @param sessionId - Session identifier for streaming state tracking
- * @param base64Chunk - Base64-encoded Float32Array PCM (16kHz mono)
- * @param isFinal - Whether this is the final chunk
- * @param config - Plugin configuration
- * @returns Transcribed text
- */
-export async function transcribeWithParakeet(
-  sessionId: string,
-  base64Chunk: string,
-  isFinal: boolean,
-  config: VoiceInputServerConfig,
-): Promise<string> {
-  // Decode base64 PCM
-  const buffer = Buffer.from(base64Chunk, "base64");
-  const samples = new Float32Array(buffer.buffer, buffer.byteOffset, buffer.byteLength / 4);
-
-  // Compute mel spectrogram
-  const mel = computeMelSpectrogram(samples);
-
-  const repoId = config.parakeetModelRepo || "ysdede/parakeet-tdt-0.6b-v3-onnx";
-  const cache = await ensureParakeetModel(repoId);
-  const state = getDecoderState(sessionId);
-
-  // Encoder inference
-  // Input shape: [1, nMels, nFrames]
-  const melTensor = new ort.Tensor("float32", mel, [1, N_MELS, mel.length / N_MELS]);
-  const encoderFeeds: Record<string, ort.Tensor> = {};
-  encoderFeeds[cache.encoderSession.inputNames[0]] = melTensor;
-  const encoderResults = await cache.encoderSession.run(encoderFeeds);
-
-  // Decoder inference
-  const decoderFeeds: Record<string, ort.Tensor> = {};
-
-  // Map encoder output to decoder input
-  const encoderOutputName = cache.encoderSession.outputNames[0];
-  const decoderInputName = cache.decoderSession.inputNames.find(
-    (name: string) => name !== "previous_state_in",
-  ) || cache.decoderSession.inputNames[0];
-
-  decoderFeeds[decoderInputName] = encoderResults[encoderOutputName];
-
-  // Pass previous decoder state if available
-  if (state.previousState) {
-    for (const name of cache.decoderSession.inputNames) {
-      if (name.includes("previous_state") || name.includes("state_in")) {
-        if (state.previousState[name]) {
-          decoderFeeds[name] = state.previousState[name];
-        }
-      }
-    }
-  }
-
-  const decoderResults = await cache.decoderSession.run(decoderFeeds);
-
-  // Extract tokens from decoder output
-  const outputName = cache.decoderSession.outputNames.find(
-    (name: string) => !name.includes("state"),
-  ) || cache.decoderSession.outputNames[0];
-
-  const logits = decoderResults[outputName];
-  const tokenIds: number[] = [];
-
-  if (logits) {
-    const data = logits.data as Float32Array;
-    const vocabSize = cache.tokenizerVocab!.length;
-    const seqLen = data.length / vocabSize;
-
-    for (let t = 0; t < seqLen; t++) {
-      let maxIdx = 0;
-      let maxVal = data[t * vocabSize];
-      for (let v = 1; v < vocabSize; v++) {
-        if (data[t * vocabSize + v] > maxVal) {
-          maxVal = data[t * vocabSize + v];
-          maxIdx = v;
-        }
-      }
-      if (maxIdx !== cache.blankId) {
-        tokenIds.push(maxIdx);
-      }
-    }
-  }
-
-  // Update decoder state for next chunk
-  const nextState: ort.InferenceSession.OnnxValueMapType = {};
-  for (const name of cache.decoderSession.outputNames) {
-    if (name.includes("state") || name.includes("previous_state_out")) {
-      nextState[name] = decoderResults[name];
-    }
-  }
-  state.previousState = Object.keys(nextState).length > 0 ? nextState : null;
-
-  // Decode tokens to text
-  const text = tokenIds
-    .map((id) => cache.tokenizerVocab![id] || "")
-    .join("")
-    .replace(/▁/g, " ")
-    .trim();
-
-  if (isFinal) {
-    resetDecoderState(sessionId);
-  }
-
-  return text;
-}
+// ── OpenAI Whisper API ───────────────────────────────────────────────────────
 
 /**
  * Transcribe audio using OpenAI Whisper API.
- *
- * @param base64Chunk - Base64-encoded raw PCM (not WAV — converted here)
- * @param config - Plugin configuration (needs openaiApiKey)
- * @returns Transcribed text
  */
 export async function transcribeWithWhisper(
   base64Chunk: string,
@@ -529,7 +294,6 @@ export async function transcribeWithWhisper(
     throw new Error("OpenAI API key not configured");
   }
 
-  // Decode base64 PCM → Float32Array → WAV buffer
   const pcmBuffer = Buffer.from(base64Chunk, "base64");
   const samples = new Float32Array(pcmBuffer.buffer, pcmBuffer.byteOffset, pcmBuffer.byteLength / 4);
 
@@ -543,7 +307,6 @@ export async function transcribeWithWhisper(
 
   const wavBuffer = Buffer.concat([wavHeader, Buffer.from(pcm16.buffer)]);
 
-  // OpenAI Audio Transcription API
   const formData = new FormData();
   formData.append("file", new Blob([wavBuffer], { type: "audio/wav" }), "audio.wav");
   formData.append("model", "whisper-1");
@@ -566,23 +329,20 @@ export async function transcribeWithWhisper(
   return result.text || "";
 }
 
-/**
- * WAV header for 16-bit mono PCM.
- */
 function createWavHeader(numSamples: number): Buffer {
-  const dataSize = numSamples * 2; // 16-bit = 2 bytes/sample
+  const dataSize = numSamples * 2;
   const header = Buffer.alloc(44);
   header.write("RIFF", 0);
   header.writeUInt32LE(36 + dataSize, 4);
   header.write("WAVE", 8);
   header.write("fmt ", 12);
-  header.writeUInt32LE(16, 16); // chunk size
-  header.writeUInt16LE(1, 20); // PCM
-  header.writeUInt16LE(1, 22); // mono
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(1, 22);
   header.writeUInt32LE(SAMPLE_RATE, 24);
-  header.writeUInt32LE(SAMPLE_RATE * 2, 28); // byte rate
-  header.writeUInt16LE(2, 32); // block align
-  header.writeUInt16LE(16, 34); // bits per sample
+  header.writeUInt32LE(SAMPLE_RATE * 2, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
   header.write("data", 36);
   header.writeUInt32LE(dataSize, 40);
   return header;

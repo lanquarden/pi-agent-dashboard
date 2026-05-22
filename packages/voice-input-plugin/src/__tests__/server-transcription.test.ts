@@ -1,8 +1,8 @@
 /**
  * Server-side transcription tests.
  *
- * Tests the mel spectrogram computation and Parakeet ONNX transcription
- * pipeline with mocked onnxruntime-node and an in-memory filesystem.
+ * Tests the Parakeet ONNX transcription pipeline with mocked onnxruntime-node
+ * and parakeet.js JsPreprocessor, plus an in-memory filesystem.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 type PathLike = string | Buffer | URL;
@@ -23,30 +23,64 @@ function seedMockFs(files: Record<string, string>): void {
 vi.mock("onnxruntime-node", () => {
   class MockTensor {
     type: string;
-    data: Float32Array;
+    data: Float32Array | Int32Array | BigInt64Array;
     dims: number[];
-    constructor(type: string, data: Float32Array | number[], dims: number[]) {
+    constructor(type: string, data: Float32Array | Int32Array | BigInt64Array | number[], dims: number[]) {
       this.type = type;
-      this.data = new Float32Array(data as Float32Array);
+      this.data = Array.isArray(data) ? new Float32Array(data) : (data as Float32Array);
       this.dims = dims;
     }
+    dispose() {}
   }
 
-  const mockSession = {
-    inputNames: ["audio", "previous_state_in"],
-    outputNames: ["logits", "previous_state_out"],
+  const mockEncoderSession = {
+    inputNames: ["audio_signal", "length"],
+    outputNames: ["outputs", "encoded_lengths"],
     run: vi.fn().mockResolvedValue({
-      logits: new MockTensor("float32", new Float32Array(10 * 1024), [1, 1024, 10]),
-      previous_state_out: new MockTensor("float32", new Float32Array(1), [1]),
+      outputs: new MockTensor("float32", new Float32Array(100 * 256), [1, 256, 100]),
+      encoded_lengths: new MockTensor("int64", BigInt64Array.from([BigInt(100)]), [1]),
+    }),
+  };
+
+  const mockJoinerSession = {
+    inputNames: ["encoder_outputs", "targets", "target_length", "input_states_1", "input_states_2"],
+    outputNames: ["outputs", "prednet_lengths", "output_states_1", "output_states_2"],
+    run: vi.fn().mockResolvedValue({
+      outputs: new MockTensor("float32", new Float32Array(8193), [1, 1, 8193]),
+      prednet_lengths: new MockTensor("int32", new Int32Array([2]), [1]),
+      output_states_1: new MockTensor("float32", new Float32Array(2 * 1 * 640), [2, 1, 640]),
+      output_states_2: new MockTensor("float32", new Float32Array(2 * 1 * 640), [2, 1, 640]),
     }),
   };
 
   return {
     InferenceSession: {
-      create: vi.fn().mockResolvedValue(mockSession),
+      create: vi.fn().mockImplementation((_path: string) => {
+        if (_path.includes("encoder")) return Promise.resolve(mockEncoderSession);
+        return Promise.resolve(mockJoinerSession);
+      }),
     },
     Tensor: MockTensor,
   };
+});
+
+// ── Mock parakeet.js JsPreprocessor ──────────────────────────────────────────
+
+vi.mock("parakeet.js", () => {
+  class MockJsPreprocessor {
+    _opts: { nMels: number; sampleRate: number };
+    constructor(opts: { nMels: number; sampleRate: number }) {
+      this._opts = opts;
+    }
+    process(audio: Float32Array): { features: Float32Array; length: number } {
+      // Simulate mel computation: produce a feature matrix [nMels, length]
+      const nMels = this._opts.nMels;
+      const nFrames = Math.max(1, Math.floor((audio.length - 400) / 160) + 1);
+      const features = new Float32Array(nFrames * nMels);
+      return { features, length: nFrames };
+    }
+  }
+  return { JsPreprocessor: MockJsPreprocessor };
 });
 
 // ── Mock fs/promises — in-memory filesystem ─────────────────────────────────
@@ -58,9 +92,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     readFile: vi.fn().mockImplementation(
       async (filePath: PathLike | FileHandle, _encoding?: BufferEncoding) => {
         const key = String(filePath);
-        if (_mockFs.has(key)) {
-          return _mockFs.get(key)!;
-        }
+        if (_mockFs.has(key)) return _mockFs.get(key)!;
         const err = new Error(`ENOENT: no such file or directory, open '${key}'`) as NodeJS.ErrnoException;
         err.code = "ENOENT";
         throw err;
@@ -89,7 +121,6 @@ function mockFetchForHuggingFace(vocabContent: string): void {
       };
     }
     if (urlStr.includes(".onnx")) {
-      // Return a minimal valid ONNX buffer (magic bytes ONNX + header)
       const header = new Uint8Array([0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
       return {
         ok: true,
@@ -101,7 +132,6 @@ function mockFetchForHuggingFace(vocabContent: string): void {
 }
 
 import {
-  computeMelSpectrogram,
   initParakeetEngine,
   transcribeWithParakeet,
 } from "../server/server-transcription.js";
@@ -118,7 +148,7 @@ const defaultConfig: VoiceInputServerConfig = {
   parakeetModelUrl: "",
 };
 
-const vocabContent = "<blank>\n<unk>\nhello\n▁world\neos";
+const vocabContent = "<blk> 8192\n<unk> 1\nhello 100\n▁world 200\n<eos> 3";
 
 describe("server-transcription", () => {
   beforeEach(() => {
@@ -131,43 +161,6 @@ describe("server-transcription", () => {
     globalThis.fetch = originalFetch;
   });
 
-  // ── Mel spectrogram ──────────────────────────────────────────────────────
-
-  it("computes mel spectrogram from 16kHz mono PCM", () => {
-    const audio = new Float32Array(16000);
-    const mel = computeMelSpectrogram(audio);
-    expect(mel.length).toBeGreaterThan(7000);
-    expect(mel.length % 80).toBe(0);
-    for (let i = 0; i < mel.length; i++) {
-      expect(Number.isFinite(mel[i])).toBe(true);
-    }
-  });
-
-  it("produces consistent output for identical input", () => {
-    const audio = new Float32Array(16000);
-    for (let i = 0; i < audio.length; i++) {
-      audio[i] = Math.sin((2 * Math.PI * 440 * i) / 16000) * 0.5;
-    }
-    const mel1 = computeMelSpectrogram(audio);
-    const mel2 = computeMelSpectrogram(audio);
-    expect(mel1).toEqual(mel2);
-  });
-
-  it("handles very short audio (< one frame)", () => {
-    const audio = new Float32Array(200);
-    const mel = computeMelSpectrogram(audio);
-    expect(mel.length).toBe(0);
-  });
-
-  it("applies pre-emphasis filter", () => {
-    const audio = new Float32Array(500);
-    audio.fill(1.0);
-    const mel = computeMelSpectrogram(audio);
-    for (let i = 0; i < Math.min(100, mel.length); i++) {
-      expect(Number.isFinite(mel[i])).toBe(true);
-    }
-  });
-
   // ── Model initialization ─────────────────────────────────────────────────
 
   it("initializes Parakeet ONNX engine from HuggingFace", async () => {
@@ -176,24 +169,26 @@ describe("server-transcription", () => {
 
   // ── Transcription ────────────────────────────────────────────────────────
 
-  it("transcribes base64 PCM chunk with Parakeet", async () => {
+  it("transcribes PCM samples with Parakeet", async () => {
     const samples = new Float32Array(16000);
     for (let i = 0; i < samples.length; i++) {
       samples[i] = Math.sin((2 * Math.PI * 440 * i) / 16000) * 0.1;
     }
-    const buffer = Buffer.from(samples.buffer);
-    const base64Chunk = buffer.toString("base64");
 
-    const text = await transcribeWithParakeet("session-1", base64Chunk, true, defaultConfig);
+    const text = await transcribeWithParakeet(samples, defaultConfig);
     expect(typeof text).toBe("string");
   });
 
   it("returns empty string for silent audio", async () => {
     const samples = new Float32Array(16000);
-    const buffer = Buffer.from(samples.buffer);
-    const base64Chunk = buffer.toString("base64");
 
-    const text = await transcribeWithParakeet("session-2", base64Chunk, true, defaultConfig);
+    const text = await transcribeWithParakeet(samples, defaultConfig);
+    expect(typeof text).toBe("string");
+  });
+
+  it("handles very short audio", async () => {
+    const samples = new Float32Array(200);
+    const text = await transcribeWithParakeet(samples, defaultConfig);
     expect(typeof text).toBe("string");
   });
 });
