@@ -46,6 +46,12 @@
       "type": "string",
       "default": "",
       "description": "URL to parakeet.js ONNX model files. Leave empty to use default CDN (Hugging Face)."
+    },
+    "parakeetBackend": {
+      "type": "string",
+      "enum": ["webgpu-hybrid", "wasm"],
+      "default": "wasm",
+      "description": "ONNX execution backend for client-side inference. 'wasm' is reliable CPU. 'webgpu-hybrid' is faster GPU with WASM fallback."
     }
   },
   "additionalProperties": false

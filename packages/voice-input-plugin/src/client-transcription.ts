@@ -111,15 +111,19 @@ export async function loadModel(
         decoderUrl: `${config.parakeetModelUrl}/decoder_joint-model.onnx`,
         tokenizerUrl: `${config.parakeetModelUrl}/vocab.txt`,
         preprocessorUrl: `${config.parakeetModelUrl}/nemo128.onnx`,
-        backend: "webgpu",
+        backend: "webgpu-hybrid",
         preprocessorBackend: "js",
         progress: progressCb,
       });
       _model = model;
     } else {
       const repoId = config.parakeetModelRepo || "ysdede/parakeet-tdt-0.6b-v3-onnx";
+      // Use the configured backend (default: "wasm" for reliability).
+      // "webgpu-hybrid" is faster when WebGPU works, but produces silent
+      // zombie sessions when the adapter is unavailable.
+      const backend = config.parakeetBackend || "wasm";
       const model = await pk.fromHub(repoId, {
-        backend: "webgpu",
+        backend,
         encoderQuant: "fp32",
         decoderQuant: "int8",
         preprocessorBackend: "js",

@@ -31,6 +31,9 @@ export interface VoiceInputConfig {
   parakeetModelRepo: string;
   vadThreshold: number;
   parakeetModelUrl: string;
+  /** ONNX backend for client-side parakeet inference. "webgpu-hybrid"
+   *  tries WebGPU with WASM fallback; "wasm" is slower but reliable. */
+  parakeetBackend: "webgpu-hybrid" | "wasm";
 }
 
 const DEFAULT_CONFIG: VoiceInputConfig = {
@@ -42,6 +45,7 @@ const DEFAULT_CONFIG: VoiceInputConfig = {
   parakeetModelRepo: "ysdede/parakeet-tdt-0.6b-v3-onnx",
   vadThreshold: 0.3,
   parakeetModelUrl: "",
+  parakeetBackend: "wasm",
 };
 
 // ── Audio capture helpers ────────────────────────────────────────────────────
@@ -527,6 +531,21 @@ export function VoiceInputSettings() {
           className="w-full"
         />
       </label>
+
+      {/* Parakeet backend (client mode only) */}
+      {local.transcriptionEngine === "client" && (
+        <label className="block mb-2">
+          <span className="block mb-0.5 font-medium text-[var(--text-secondary)]">ONNX backend</span>
+          <select
+            value={local.parakeetBackend}
+            onChange={(e) => update({ parakeetBackend: e.target.value as VoiceInputConfig["parakeetBackend"] })}
+            className="w-full px-1.5 py-1 text-xs rounded border border-[var(--border-secondary)] bg-[var(--bg-primary)] text-[var(--text-primary)]"
+          >
+            <option value="wasm">WASM (reliable, CPU)</option>
+            <option value="webgpu-hybrid">WebGPU Hybrid (fast, GPU + WASM fallback)</option>
+          </select>
+        </label>
+      )}
 
       {/* Parakeet model URL (client mode only) */}
       {local.transcriptionEngine === "client" && (
