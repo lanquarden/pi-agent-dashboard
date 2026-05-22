@@ -125,10 +125,11 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
   const isControlled = draft !== undefined;
   const [localText, setLocalText] = useState("");
   const text = isControlled ? (draft as string) : localText;
-  const setText = useCallback((v: string) => {
-    if (!isControlled) setLocalText(v);
-    onDraftChange?.(v);
-  }, [isControlled, onDraftChange]);
+  const setText = useCallback((v: string | ((prev: string) => string)) => {
+    const next = typeof v === "function" ? v(isControlled ? (draft as string) : localText) : v;
+    if (!isControlled) setLocalText(next);
+    onDraftChange?.(next);
+  }, [isControlled, onDraftChange, draft, localText]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [stopState, setStopState] = useState<StopState>("idle");
 

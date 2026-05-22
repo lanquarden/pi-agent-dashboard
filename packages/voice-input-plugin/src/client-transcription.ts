@@ -148,6 +148,7 @@ export function getStreamer(model: ParakeetModel): StreamingTranscriber {
       returnTimestamps: false,
       returnConfidences: false,
       sampleRate: 16000,
+      debug: true,
     });
   }
   return _streamer;
@@ -162,13 +163,24 @@ export async function transcribeChunks(
 ): Promise<string> {
   if (chunks.length === 0) return "";
 
-  let lastResult: StreamingResult | null = null;
+  // Accumulate chunk-level utterance text, then append the final word-level
+  // transcript. When returnTimestamps is disabled, parakeet produces
+  // utterance_text per chunk but the words[] array is empty (word boundaries
+  // require timestamps). We concatenate chunkText to preserve the output.
+  // The model emits "." as a placeholder when the decoder produces no new
+  // speech content — filter those out.
+  const parts: string[] = [];
   for (const chunk of chunks) {
-    lastResult = await streamer.processChunk(chunk);
+    const result = await streamer.processChunk(chunk);
+    const t = (result.chunkText || "").trim();
+    if (t && t !== ".") parts.push(t);
   }
 
   const final = streamer.finalize();
-  return final.text || lastResult?.text || "";
+  const ft = (final.text || "").trim();
+  if (ft && ft !== ".") parts.push(ft);
+
+  return parts.join(" ").trim();
 }
 
 export function resetStreamer(): void {

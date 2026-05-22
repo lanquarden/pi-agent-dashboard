@@ -63,7 +63,7 @@ function createAudioCapture(onChunk: AudioChunkCallback, sampleRate = 16000): { 
       audio: { sampleRate: { ideal: sampleRate }, channelCount: 1, echoCancellation: true, noiseSuppression: true },
     });
     audioContext = new AudioContext({ sampleRate });
-    console.debug("[voice-input] AudioContext created:", { requestedSampleRate: sampleRate, actualSampleRate: audioContext.sampleRate, state: audioContext.state });
+    console.log("[voice-input] AudioContext created:", { requestedSampleRate: sampleRate, actualSampleRate: audioContext.sampleRate, state: audioContext.state });
     // Push-to-talk mode fires startRecording() from a setTimeout callback
     // (200ms hold threshold), which runs outside the user-gesture window.
     // Browsers create the AudioContext in "suspended" state without a user
@@ -79,7 +79,7 @@ function createAudioCapture(onChunk: AudioChunkCallback, sampleRate = 16000): { 
       const copy = new Float32Array(input);
       // Quick sanity check: are we getting non-silent audio?
       const maxSample = copy.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
-      console.debug("[voice-input] chunk captured:", { samples: copy.length, maxAbsSample: maxSample.toFixed(4) });
+      console.log("[voice-input] chunk captured:", { samples: copy.length, maxAbsSample: maxSample.toFixed(4) });
       onChunk(copy);
     };
     source.connect(processor);
@@ -225,7 +225,7 @@ export function MicButton({ session, onInsertText }: SlotProps<"command-input-ac
 
     const totalSamples = allChunks.reduce((sum, c) => sum + c.length, 0);
     const durationSec = totalSamples / 16000;
-    console.debug("[voice-input] stopRecording:", { chunkCount: allChunks.length, totalSamples, durationSec: durationSec.toFixed(2) + "s" });
+    console.log("[voice-input] stopRecording:", { chunkCount: allChunks.length, totalSamples, durationSec: durationSec.toFixed(2) + "s" });
 
     try {
       if (config.transcriptionEngine === "client") {
