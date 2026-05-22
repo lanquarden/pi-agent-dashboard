@@ -59,6 +59,7 @@ function createAudioCapture(onChunk: AudioChunkCallback, sampleRate = 16000): { 
       audio: { sampleRate: { ideal: sampleRate }, channelCount: 1, echoCancellation: true, noiseSuppression: true },
     });
     audioContext = new AudioContext({ sampleRate });
+    console.debug("[voice-input] AudioContext created:", { requestedSampleRate: sampleRate, actualSampleRate: audioContext.sampleRate, state: audioContext.state });
     // Push-to-talk mode fires startRecording() from a setTimeout callback
     // (200ms hold threshold), which runs outside the user-gesture window.
     // Browsers create the AudioContext in "suspended" state without a user
@@ -71,7 +72,11 @@ function createAudioCapture(onChunk: AudioChunkCallback, sampleRate = 16000): { 
     processor = audioContext.createScriptProcessor(4096, 1, 1);
     processor.onaudioprocess = (e) => {
       const input = e.inputBuffer.getChannelData(0);
-      onChunk(new Float32Array(input));
+      const copy = new Float32Array(input);
+      // Quick sanity check: are we getting non-silent audio?
+      const maxSample = copy.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
+      console.debug("[voice-input] chunk captured:", { samples: copy.length, maxAbsSample: maxSample.toFixed(4) });
+      onChunk(copy);
     };
     source.connect(processor);
     // Route through a silent gain node instead of directly to destination —
@@ -168,6 +173,7 @@ export function MicButton({ session, onInsertText }: SlotProps<"command-input-ac
 
   const startRecording = useCallback(async () => {
     try {
+      console.debug("[voice-input] startRecording:", { engine: config.transcriptionEngine, modelLoaded: isModelLoaded() });
       setStatus("requesting-permission");
 
       // Client mode: lazily load parakeet.js model on first use
@@ -213,13 +219,19 @@ export function MicButton({ session, onInsertText }: SlotProps<"command-input-ac
     const allChunks = chunksRef.current;
     chunksRef.current = [];
 
+    const totalSamples = allChunks.reduce((sum, c) => sum + c.length, 0);
+    const durationSec = totalSamples / 16000;
+    console.debug("[voice-input] stopRecording:", { chunkCount: allChunks.length, totalSamples, durationSec: durationSec.toFixed(2) + "s" });
+
     try {
       if (config.transcriptionEngine === "client") {
         // Client-side: run parakeet.js ONNX inference on accumulated PCM chunks
         const model = await loadModel(config);
         const streamer = getStreamer(model);
         const text = await transcribeChunks(allChunks, streamer);
+        console.debug("[voice-input] transcription result:", { text: text || "(empty)", textLen: text.length });
         if (text) onInsertText?.(text);
+        else console.warn("[voice-input] transcription produced empty text — model may not be processing audio correctly");
       } else {
         // Server-side: send audio chunks to dashboard server via plugin WebSocket
         const base64Chunks = allChunks.map((chunk) => {
