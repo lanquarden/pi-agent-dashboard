@@ -231,8 +231,7 @@ export function MicButton({ session, onInsertText }: SlotProps<"command-input-ac
       if (config.transcriptionEngine === "client") {
         // Client-side: run parakeet.js ONNX inference on accumulated PCM chunks
         const model = await loadModel(config);
-        const streamer = getStreamer(model);
-        const text = await transcribeChunks(allChunks, streamer);
+        const text = await transcribeChunks(allChunks, model);
         console.debug("[voice-input] transcription result:", { text: text || "(empty)", textLen: text.length });
         if (text) onInsertText?.(text);
         else console.warn("[voice-input] transcription produced empty text — model may not be processing audio correctly");

@@ -155,32 +155,33 @@ export function getStreamer(model: ParakeetModel): StreamingTranscriber {
 }
 
 /**
- * Transcribe accumulated audio chunks using the streaming transcriber.
+ * Transcribe accumulated audio chunks using a single-shot (non-streaming)
+ * call. Streaming mode was producing only the first utterance ("Yeah.") and
+ * then "." for all subsequent chunks — the decoder state got stuck. Single-shot
+ * lets the model see the full audio context at once.
  */
 export async function transcribeChunks(
   chunks: Float32Array[],
-  streamer: StreamingTranscriber,
+  model: ParakeetModel,
 ): Promise<string> {
   if (chunks.length === 0) return "";
 
-  // Accumulate chunk-level utterance text, then append the final word-level
-  // transcript. When returnTimestamps is disabled, parakeet produces
-  // utterance_text per chunk but the words[] array is empty (word boundaries
-  // require timestamps). We concatenate chunkText to preserve the output.
-  // The model emits "." as a placeholder when the decoder produces no new
-  // speech content — filter those out.
-  const parts: string[] = [];
+  // Concatenate all chunks into one buffer
+  const totalLen = chunks.reduce((s, c) => s + c.length, 0);
+  const fullAudio = new Float32Array(totalLen);
+  let offset = 0;
   for (const chunk of chunks) {
-    const result = await streamer.processChunk(chunk);
-    const t = (result.chunkText || "").trim();
-    if (t && t !== ".") parts.push(t);
+    fullAudio.set(chunk, offset);
+    offset += chunk.length;
   }
 
-  const final = streamer.finalize();
-  const ft = (final.text || "").trim();
-  if (ft && ft !== ".") parts.push(ft);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const result = await (model as any).transcribe(fullAudio, 16000, {
+    returnTimestamps: false,
+    language: "en",
+  });
 
-  return parts.join(" ").trim();
+  return (result?.utterance_text || result?.text || "").trim();
 }
 
 export function resetStreamer(): void {

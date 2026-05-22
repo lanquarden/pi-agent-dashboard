@@ -122,21 +122,26 @@ describe("client-transcription", () => {
     expect(createStub).toHaveBeenCalledTimes(1);
   });
 
-  it("transcribes audio chunks via streamer", async () => {
-    const model = await loadModel(defaultConfig);
-    const streamer = getStreamer(model);
+  it("transcribes audio chunks via single-shot model.transcribe", async () => {
+    // Mock the model's transcribe method to simulate single-shot output
+    const mockModel = {
+      transcribe: vi.fn().mockResolvedValue({ utterance_text: "hello world" }),
+    };
 
     const chunk = new Float32Array(1600); // 100ms at 16kHz
-    const text = await transcribeChunks([chunk, chunk], streamer);
+    const text = await transcribeChunks([chunk, chunk], mockModel as any);
     expect(text).toBe("hello world");
+    expect(mockModel.transcribe).toHaveBeenCalledTimes(1);
   });
 
   it("returns empty string for empty chunks", async () => {
-    const model = await loadModel(defaultConfig);
-    const streamer = getStreamer(model);
+    const mockModel = {
+      transcribe: vi.fn(),
+    };
 
-    const text = await transcribeChunks([], streamer);
+    const text = await transcribeChunks([], mockModel as any);
     expect(text).toBe("");
+    expect(mockModel.transcribe).not.toHaveBeenCalled();
   });
 
   // ── Lifecycle ────────────────────────────────────────────────────────────
