@@ -553,8 +553,23 @@ export interface PluginConfigUpdateMessage {
   config: unknown;
 }
 
+/**
+ * Server → browser: transcription result for a voice-input audio chunk.
+ * Broadcast by the voice-input plugin's server entry after processing a
+ * `voice_input_audio` message (Parakeet ONNX or OpenAI Whisper).
+ * See change: fix-voice-input-mic-button.
+ */
+export interface VoiceInputTranscriptMessage {
+  type: "voice_input_transcript";
+  sessionId: string;
+  text: string;
+  partial: boolean;
+  error?: string;
+}
+
 export type ServerToBrowserMessage =
   | PluginConfigUpdateMessage
+  | VoiceInputTranscriptMessage
   | SessionAddedMessage
   | SessionUpdatedMessage
   | SessionRemovedMessage

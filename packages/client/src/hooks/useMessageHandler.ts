@@ -656,6 +656,13 @@ export function useMessageHandler(
         window.dispatchEvent(new CustomEvent("pi-core-event", { detail: msg }));
         break;
 
+      case "voice_input_transcript":
+        // Forward to voice-input plugin's MicButton so it can insert
+        // transcribed text into the command input. See change:
+        // fix-voice-input-mic-button.
+        window.dispatchEvent(new CustomEvent("voice-input-transcript", { detail: msg }));
+        break;
+
       case "plugin_config_update":
         // Update the plugin config store and re-render any usePluginConfig consumers.
         applyPluginConfigUpdate(msg);

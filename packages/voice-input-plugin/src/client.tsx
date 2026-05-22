@@ -101,7 +101,10 @@ type MicStatus = "idle" | "requesting-permission" | "loading-model" | "listening
  * - onInsertText: callback to insert transcribed text into the CommandInput textarea
  */
 export function MicButton({ session, onInsertText }: SlotProps<"command-input-action">) {
-  const config = usePluginConfig<VoiceInputConfig>() ?? DEFAULT_CONFIG;
+  // Merge with defaults so the button works immediately — even before the
+  // server delivers the persisted plugin config via WebSocket.
+  const rawConfig = usePluginConfig<VoiceInputConfig>();
+  const config: VoiceInputConfig = { ...DEFAULT_CONFIG, ...rawConfig };
   const send = usePluginSend();
   const [status, setStatus] = useState<MicStatus>("idle");
   const [liveText, setLiveText] = useState("");
@@ -110,6 +113,8 @@ export function MicButton({ session, onInsertText }: SlotProps<"command-input-ac
   const chunksRef = useRef<Float32Array[]>([]);
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isHoldingRef = useRef(false);
+  const sessionIdRef = useRef(session.id);
+  sessionIdRef.current = session.id;
 
   // Cleanup on unmount
   useEffect(() => {
@@ -118,6 +123,26 @@ export function MicButton({ session, onInsertText }: SlotProps<"command-input-ac
       if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
     };
   }, []);
+
+  // Listen for server-side transcription results.
+  // The dashboard server broadcasts `voice_input_transcript` after processing
+  // audio chunks; useMessageHandler re-dispatches it as a DOM CustomEvent.
+  useEffect(() => {
+    function onTranscript(e: Event) {
+      const detail = (e as CustomEvent).detail as {
+        type: string;
+        sessionId: string;
+        text: string;
+        partial: boolean;
+      };
+      if (detail.sessionId !== sessionIdRef.current) return;
+      if (detail.text && !detail.partial) {
+        onInsertText?.(detail.text);
+      }
+    }
+    window.addEventListener("voice-input-transcript", onTranscript);
+    return () => window.removeEventListener("voice-input-transcript", onTranscript);
+  }, [onInsertText]);
 
   const startRecording = useCallback(async () => {
     try {
@@ -189,8 +214,10 @@ export function MicButton({ session, onInsertText }: SlotProps<"command-input-ac
           });
         }
 
-        // Server responds with transcript via voice_input_transcript message —
-        // the `transcribedText` cache below handles async response.
+        // Server responds with `voice_input_transcript` — handled by the
+        // useEffect listener above that watches the "voice-input-transcript"
+        // DOM CustomEvent dispatched by useMessageHandler.
+        // Keep a short settle window so the server has time to process.
         await new Promise((resolve) => setTimeout(resolve, 200));
       }
     } catch (err: unknown) {
