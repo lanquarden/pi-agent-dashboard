@@ -59,6 +59,13 @@ function createAudioCapture(onChunk: AudioChunkCallback, sampleRate = 16000): { 
       audio: { sampleRate: { ideal: sampleRate }, channelCount: 1, echoCancellation: true, noiseSuppression: true },
     });
     audioContext = new AudioContext({ sampleRate });
+    // Push-to-talk mode fires startRecording() from a setTimeout callback
+    // (200ms hold threshold), which runs outside the user-gesture window.
+    // Browsers create the AudioContext in "suspended" state without a user
+    // gesture — resume() brings it to "running" so onaudioprocess fires.
+    if (audioContext.state === "suspended") {
+      await audioContext.resume();
+    }
     source = audioContext.createMediaStreamSource(stream);
     // ScriptProcessorNode buffer size: ~100ms at 16kHz
     processor = audioContext.createScriptProcessor(4096, 1, 1);
@@ -67,7 +74,13 @@ function createAudioCapture(onChunk: AudioChunkCallback, sampleRate = 16000): { 
       onChunk(new Float32Array(input));
     };
     source.connect(processor);
-    processor.connect(audioContext.destination);
+    // Route through a silent gain node instead of directly to destination —
+    // avoids playing the microphone back through the speakers (feedback).
+    // The graph must have a sink for onaudioprocess to fire.
+    const silentGain = audioContext.createGain();
+    silentGain.gain.value = 0;
+    processor.connect(silentGain);
+    silentGain.connect(audioContext.destination);
   }
 
   function stop() {
@@ -134,10 +147,19 @@ export function MicButton({ session, onInsertText }: SlotProps<"command-input-ac
         sessionId: string;
         text: string;
         partial: boolean;
+        error?: string;
       };
       if (detail.sessionId !== sessionIdRef.current) return;
+      if (detail.error) {
+        setStatus("error");
+        setLiveText(`Transcription failed: ${detail.error}`);
+        setTimeout(() => { setStatus("idle"); setLiveText(""); }, 4000);
+        return;
+      }
       if (detail.text && !detail.partial) {
         onInsertText?.(detail.text);
+        setStatus("idle");
+        setLiveText("");
       }
     }
     window.addEventListener("voice-input-transcript", onTranscript);

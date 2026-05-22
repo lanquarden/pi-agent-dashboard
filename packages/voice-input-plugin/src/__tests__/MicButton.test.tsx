@@ -86,6 +86,8 @@ function mockGetUserMedia() {
   // Must be a proper constructor (not arrow function) for `new AudioContext()`
   function MockAudioContext(this: Record<string, unknown>) {
     this.sampleRate = 16000;
+    this.state = "running";
+    this.resume = vi.fn().mockResolvedValue(undefined);
     this.destination = {};
     this.createMediaStreamSource = vi.fn(() => ({
       connect: vi.fn(),
@@ -95,6 +97,10 @@ function mockGetUserMedia() {
       connect: vi.fn(),
       disconnect: vi.fn(),
       onaudioprocess: null as ((e: unknown) => void) | null,
+    }));
+    this.createGain = vi.fn(() => ({
+      gain: { value: 0 },
+      connect: vi.fn(),
     }));
     this.close = vi.fn();
   }
