@@ -1081,6 +1081,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       });
       fastify.addHook("onRequest", proxyAuthGate);
 
+      // Required for SharedArrayBuffer (needed by onnxruntime-web WASM backend).
+      // Without these headers, the threaded WASM binary can't instantiate and
+      // ORT session creation fails with "Can't create a session".
+      // See: fix-voice-input-mic-button.
+      fastify.addHook("onSend", async (_request, reply, payload) => {
+        reply.header("Cross-Origin-Opener-Policy", "same-origin");
+        reply.header("Cross-Origin-Embedder-Policy", "require-corp");
+        return payload;
+      });
+
       // Register /v1/* routes
       registerModelProxyRoutes(fastify, {
         getConfig: () => loadConfig().modelProxy,
