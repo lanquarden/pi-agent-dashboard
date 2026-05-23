@@ -58,6 +58,8 @@ const defaultConfig: VoiceInputConfig = {
   parakeetModelRepo: "ysdede/parakeet-tdt-0.6b-v3-onnx",
   vadThreshold: 0.3,
   parakeetModelUrl: "",
+  parakeetBackend: "wasm",
+  streamEnabled: false,
 };
 
 describe("client-transcription", () => {

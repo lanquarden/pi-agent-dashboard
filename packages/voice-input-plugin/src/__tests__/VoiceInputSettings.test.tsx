@@ -1,7 +1,7 @@
 /**
  * VoiceInputSettings component tests.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, fireEvent, act, cleanup, screen } from "@testing-library/react";
 import React from "react";
 import {
@@ -23,14 +23,9 @@ function seedConfig(cfg: Partial<VoiceInputConfig>) {
   });
 }
 
-function makeSend(): { messages: unknown[]; fn: (m: unknown) => void } {
-  const messages: unknown[] = [];
-  return { messages, fn: (m: unknown) => messages.push(m) };
-}
-
-function wrap(children: React.ReactNode, send?: (m: unknown) => void) {
+function wrap(children: React.ReactNode) {
   return (
-    <PluginContextProvider registry={createSlotRegistry()} sessions={[makeSession()]} send={send}>
+    <PluginContextProvider registry={createSlotRegistry()} sessions={[makeSession()]}>
       <CurrentPluginLayer pluginId="voice-input">{children}</CurrentPluginLayer>
     </PluginContextProvider>
   );
@@ -45,10 +40,18 @@ function getSelectByLabel(label: string): HTMLSelectElement {
 }
 
 describe("VoiceInputSettings", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
   beforeEach(() => {
     seedConfig({ mode: "push-to-talk", transcriptionEngine: "client", language: "en" });
+    fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
   });
-  afterEach(() => { cleanup(); seedConfig({}); });
+  afterEach(() => {
+    cleanup();
+    seedConfig({});
+    vi.unstubAllGlobals();
+  });
 
   it("renders the settings form", () => {
     render(wrap(<VoiceInputSettings />));
@@ -69,22 +72,26 @@ describe("VoiceInputSettings", () => {
     expect(select.value).toBe("client");
   });
 
-  it("switches between push-to-talk and toggle", () => {
-    const send = makeSend();
-    render(wrap(<VoiceInputSettings />, send.fn));
+  it("switches between push-to-talk and toggle", async () => {
+    render(wrap(<VoiceInputSettings />));
 
     const modeSelect = getSelectByLabel("Recording mode");
     fireEvent.change(modeSelect, { target: { value: "toggle" } });
     expect(modeSelect.value).toBe("toggle");
 
     fireEvent.click(screen.getByTestId("voice-input-save"));
-    expect(send.messages[0]).toMatchObject({ type: "plugin_config_write", id: "voice-input" });
-    expect((send.messages[0] as { config: VoiceInputConfig }).config.mode).toBe("toggle");
+
+    // Component saves via fetch to /api/config/plugins/voice-input
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/config/plugins/voice-input",
+      expect.objectContaining({ method: "POST" }),
+    );
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.mode).toBe("toggle");
   });
 
-  it("switches between client and server engine", () => {
-    const send = makeSend();
-    render(wrap(<VoiceInputSettings />, send.fn));
+  it("switches between client and server engine", async () => {
+    render(wrap(<VoiceInputSettings />));
 
     const engineSelect = getSelectByLabel("Transcription engine");
     fireEvent.change(engineSelect, { target: { value: "server" } });
@@ -95,29 +102,35 @@ describe("VoiceInputSettings", () => {
     expect(serverSelect.value).toBe("parakeet-onnx");
 
     fireEvent.click(screen.getByTestId("voice-input-save"));
-    expect((send.messages[0] as { config: VoiceInputConfig }).config.transcriptionEngine).toBe("server");
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.transcriptionEngine).toBe("server");
   });
 
-  it("dispatches plugin_config_write on save", () => {
-    const send = makeSend();
-    render(wrap(<VoiceInputSettings />, send.fn));
+  it("dispatches plugin_config_write on save", async () => {
+    render(wrap(<VoiceInputSettings />));
     fireEvent.click(screen.getByTestId("voice-input-save"));
-    expect(send.messages).toHaveLength(1);
-    expect(send.messages[0]).toMatchObject({
-      type: "plugin_config_write",
-      id: "voice-input",
-      config: expect.objectContaining({ mode: "push-to-talk", transcriptionEngine: "client", language: "en" }),
-    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/config/plugins/voice-input",
+      expect.objectContaining({ method: "POST" }),
+    );
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.mode).toBe("push-to-talk");
+    expect(body.transcriptionEngine).toBe("client");
+    expect(body.language).toBe("en");
   });
 
-  it("updates language and saves", () => {
-    const send = makeSend();
-    render(wrap(<VoiceInputSettings />, send.fn));
+  it("updates language and saves", async () => {
+    render(wrap(<VoiceInputSettings />));
 
     const langInput = screen.getByPlaceholderText("en") as HTMLInputElement;
     fireEvent.change(langInput, { target: { value: "de" } });
 
     fireEvent.click(screen.getByTestId("voice-input-save"));
-    expect((send.messages[0] as { config: VoiceInputConfig }).config.language).toBe("de");
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.language).toBe("de");
   });
 });

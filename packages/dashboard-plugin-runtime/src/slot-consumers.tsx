@@ -362,7 +362,7 @@ export function SettingsSectionByPluginSlot({ pluginId }: { pluginId: string }) 
   );
 }
 
-export function CommandInputActionSlot({ session, onInsertText }: { session: DashboardSession; onInsertText?: (text: string) => void }) {
+export function CommandInputActionSlot({ session, onInsertText, setInputText }: { session: DashboardSession; onInsertText?: (text: string) => void; setInputText?: (text: string) => void }) {
   const registry = useSlotRegistryOrNull();
   const intents = useSlotIntents("command-input-action", session.id);
   const legacyClaims = registry
@@ -372,7 +372,7 @@ export function CommandInputActionSlot({ session, onInsertText }: { session: Das
   return (
     <>
       {legacyClaims.map((c) =>
-        renderClaim(c as Parameters<typeof renderClaim>[0], "command-input-action", { session, onInsertText }),
+        renderClaim(c as Parameters<typeof renderClaim>[0], "command-input-action", { session, onInsertText, setInputText }),
       )}
       {Array.from(intents.entries()).map(([pluginId, intent]) =>
         renderIntent(pluginId, "command-input-action", intent, session.id),

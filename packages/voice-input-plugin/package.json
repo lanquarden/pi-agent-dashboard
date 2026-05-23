@@ -54,7 +54,9 @@
     "@mdi/js": "^7.4.47",
     "@mdi/react": "^1.6.1",
     "onnxruntime-node": "^1.21.0",
-    "parakeet.js": "^1.4.0"
+    "parakeet.js": "^1.4.0",
+    "wink-eng-lite-web-model": "^1.8.1",
+    "wink-nlp": "^2.4.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.6.3",

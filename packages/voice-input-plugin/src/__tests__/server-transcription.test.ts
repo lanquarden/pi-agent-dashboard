@@ -146,6 +146,7 @@ const defaultConfig: VoiceInputServerConfig = {
   parakeetModelRepo: "ysdede/parakeet-tdt-0.6b-v3-onnx",
   vadThreshold: 0.3,
   parakeetModelUrl: "",
+  streamEnabled: false,
 };
 
 const vocabContent = "<blk> 8192\n<unk> 1\nhello 100\n▁world 200\n<eos> 3";

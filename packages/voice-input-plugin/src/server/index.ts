@@ -2,21 +2,28 @@
  * Voice Input Plugin — server entry
  *
  * Handles server-side speech-to-text transcription.
- * Accumulates audio chunks from the browser until `final: true`,
- * then transcribes the complete recording in a single shot.
+ * Supports two modes:
+ *   - One-shot: accumulate all chunks → transcribe on `final: true` (existing)
+ *   - Streaming: real-time partial results via windowed transcription (new)
  *
- * Single-shot transcription is more reliable than streaming: the TDT model
- * needs enough audio context (~1+ seconds) to produce meaningful tokens.
- * Per-chunk streaming produces blank/empty results because each ~100ms chunk
- * is too short for the encoder to extract useful features.
+ * The one-shot path uses the TDT frame-by-frame decoder in server-transcription.ts.
+ * The streaming path uses the shared StreamingTranscriber core with parakeet.js's
+ * native model.transcribe() (which uses the same ONNX models but leverages
+ * parakeet.js's internal incremental caching for overlap reuse).
  */
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import {
   initParakeetEngine,
   transcribeWithParakeet,
   transcribeWithWhisper,
+  ensureParakeetModel,
   type VoiceInputServerConfig,
 } from "./server-transcription.js";
+import {
+  getOrCreateStream,
+  pushChunk,
+  stopStream,
+} from "./server-streaming.js";
 
 // ── Chunk accumulator ────────────────────────────────────────────────────────
 // Audio chunks arrive one-by-one from the browser (each ~100ms of 16kHz PCM).
@@ -144,6 +151,127 @@ export default async function registerPlugin(ctx: ServerPluginContext): Promise<
     }
   });
 
+  // ── Streaming handlers (opt-in via streamEnabled config) ──────────────────
+  //
+  // Protocol:
+  //   Browser → Server:  voice_input_stream_start  { sessionId }
+  //                       voice_input_stream_chunk  { sessionId, chunk: "<base64>", seq: number }
+  //                       voice_input_stream_stop   { sessionId }
+  //   Server → Browser:   voice_input_partial       { sessionId, matureText, pendingText, seq }
+  //                       voice_input_final          { sessionId, fullText }
+
+  // Lazy model loader for the streaming inference engine.
+  // Uses the existing ensureParakeetModel from server-transcription.ts
+  // which downloads ONNX models from HuggingFace on first use.
+  const getStreamingModel = async (): Promise<Record<string, unknown>> => {
+    const repoId = cfg.parakeetModelRepo || "ysdede/parakeet-tdt-0.6b-v3-onnx";
+    // ensureParakeetModel downloads + caches ONNX model files to disk.
+    await ensureParakeetModel(repoId);
+
+    // parakeet.js fromUrls uses onnxruntime-web which is incompatible
+    // with Node.js (it does dynamic import() of HTTPS URLs). Instead,
+    // return a thin wrapper around transcribeWithParakeet which already
+    // uses onnxruntime-node and the locally cached model files.
+    //
+    // Caveat: incremental decoder cache is not supported — each streaming
+    // window is transcribed independently. This is slower (redundant
+    // encoder passes) but correct.
+    return {
+      transcribe: async (
+        audio: Float32Array,
+        _sampleRate: number,
+        _opts?: Record<string, unknown>,
+      ) => {
+        const text = await transcribeWithParakeet(audio, {
+          ...cfg,
+          parakeetModelRepo: repoId,
+        });
+        // transcribeWithParakeet does TDT decoding without per-word timestamps.
+        // Generate synthetic word timestamps anchored at timeOffset so the
+        // UtteranceBasedMerger can deduplicate across overlapping windows.
+        // Words are spaced ~0.25s apart (typical speaking rate).
+        const timeOffset = (Number(_opts?.timeOffset) || 0);
+        const wordsPerSec = 4; // approximate words per second
+        const secPerWord = 1 / wordsPerSec;
+        const words = text
+          ? text.split(/\s+/).filter(Boolean).map((w: string, i: number) => ({
+              text: w,
+              start_time: timeOffset + i * secPerWord,
+              end_time: timeOffset + (i + 1) * secPerWord,
+              confidence: 0.9,
+            }))
+          : [];
+        return { utterance_text: text, words };
+      },
+      resetMelCache: () => {},
+    };
+  };
+
+  ctx.registerBrowserHandler("voice_input_stream_start", async (msg) => {
+    const { sessionId } = msg as { type: string; sessionId: string };
+    const currentCfg = ctx.getPluginConfig<VoiceInputServerConfig>();
+    if (currentCfg.transcriptionEngine !== "server") return;
+    if (!currentCfg.streamEnabled) return;
+
+    ctx.logger.info(`voice_input stream start ${sessionId}`);
+
+    getOrCreateStream(
+      sessionId,
+      getStreamingModel,
+      (sid, matureText, pendingText, seq) => {
+        ctx.broadcastToSubscribers({
+          type: "voice_input_partial",
+          sessionId: sid,
+          matureText,
+          pendingText,
+          seq,
+        });
+      },
+      (sid, error) => {
+        ctx.logger.error(`voice_input stream error ${sid}: ${error}`);
+        ctx.broadcastToSubscribers({
+          type: "voice_input_final",
+          sessionId: sid,
+          fullText: "",
+          error,
+        });
+      },
+    );
+  });
+
+  ctx.registerBrowserHandler("voice_input_stream_chunk", async (msg) => {
+    const { sessionId, chunk: base64Chunk } = msg as {
+      type: string;
+      sessionId: string;
+      chunk: string;
+      seq: number;
+    };
+    const currentCfg = ctx.getPluginConfig<VoiceInputServerConfig>();
+    if (currentCfg.transcriptionEngine !== "server") return;
+    if (!currentCfg.streamEnabled) return;
+    if (!base64Chunk) return;
+
+    const buf = Buffer.from(base64Chunk, "base64");
+    const pcm = new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4);
+    pushChunk(sessionId, pcm);
+  });
+
+  ctx.registerBrowserHandler("voice_input_stream_stop", async (msg) => {
+    const { sessionId } = msg as { type: string; sessionId: string };
+    const currentCfg = ctx.getPluginConfig<VoiceInputServerConfig>();
+    if (currentCfg.transcriptionEngine !== "server") return;
+    if (!currentCfg.streamEnabled) return;
+
+    ctx.logger.info(`voice_input stream stop ${sessionId}`);
+
+    const fullText = stopStream(sessionId);
+    ctx.broadcastToSubscribers({
+      type: "voice_input_final",
+      sessionId,
+      fullText,
+    });
+  });
+
   // ── REST route: health check ──────────────────────────────────────────────
 
   ctx.fastify.get("/api/voice-input/health", async () => {
@@ -153,6 +281,7 @@ export default async function registerPlugin(ctx: ServerPluginContext): Promise<
       engine: currentCfg.serverEngine,
       transcriptionEngine: currentCfg.transcriptionEngine,
       modelRepo: currentCfg.serverEngine === "parakeet-onnx" ? currentCfg.parakeetModelRepo : null,
+      streamEnabled: currentCfg.streamEnabled ?? false,
     };
   });
 

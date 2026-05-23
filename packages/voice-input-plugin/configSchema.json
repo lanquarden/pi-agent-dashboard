@@ -52,6 +52,11 @@
       "enum": ["webgpu-hybrid", "wasm"],
       "default": "wasm",
       "description": "ONNX execution backend for client-side inference. 'wasm' is reliable CPU. 'webgpu-hybrid' is faster GPU with WASM fallback."
+    },
+    "streamEnabled": {
+      "type": "boolean",
+      "default": false,
+      "description": "Enable real-time streaming transcription. Shows partial results as you speak instead of waiting until recording ends."
     }
   },
   "additionalProperties": false

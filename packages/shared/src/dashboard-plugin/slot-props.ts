@@ -88,6 +88,8 @@ export interface SlotPropsMap {
     session: DashboardSession;
     pluginContext: AnyPluginContext;
     onInsertText: (text: string) => void;
+    /** Replace the entire input text (used by streaming for live partial updates). */
+    setInputText: (text: string) => void;
   };
   // Descriptor-only slots don't have React props (consumed by extension-ui-system)
   "management-modal": Record<string, unknown>;

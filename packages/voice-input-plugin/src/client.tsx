@@ -19,6 +19,7 @@ import {
   isLoadingModel,
   destroyModel,
 } from "./client-transcription.js";
+import { useStreamingTranscription } from "./client-streaming.js";
 
 // ── Config type ──────────────────────────────────────────────────────────────
 
@@ -34,6 +35,8 @@ export interface VoiceInputConfig {
   /** ONNX backend for client-side parakeet inference. "webgpu-hybrid"
    *  tries WebGPU with WASM fallback; "wasm" is slower but reliable. */
   parakeetBackend: "webgpu-hybrid" | "wasm";
+  /** Enable real-time streaming transcription. Shows partial results as you speak. */
+  streamEnabled: boolean;
 }
 
 const DEFAULT_CONFIG: VoiceInputConfig = {
@@ -46,6 +49,7 @@ const DEFAULT_CONFIG: VoiceInputConfig = {
   vadThreshold: 0.3,
   parakeetModelUrl: "",
   parakeetBackend: "wasm",
+  streamEnabled: false,
 };
 
 // ── Audio capture helpers ────────────────────────────────────────────────────
@@ -63,7 +67,6 @@ function createAudioCapture(onChunk: AudioChunkCallback, sampleRate = 16000): { 
       audio: { sampleRate: { ideal: sampleRate }, channelCount: 1, echoCancellation: true, noiseSuppression: true },
     });
     audioContext = new AudioContext({ sampleRate });
-    console.log("[voice-input] AudioContext created:", { requestedSampleRate: sampleRate, actualSampleRate: audioContext.sampleRate, state: audioContext.state });
     // Push-to-talk mode fires startRecording() from a setTimeout callback
     // (200ms hold threshold), which runs outside the user-gesture window.
     // Browsers create the AudioContext in "suspended" state without a user
@@ -77,9 +80,6 @@ function createAudioCapture(onChunk: AudioChunkCallback, sampleRate = 16000): { 
     processor.onaudioprocess = (e) => {
       const input = e.inputBuffer.getChannelData(0);
       const copy = new Float32Array(input);
-      // Quick sanity check: are we getting non-silent audio?
-      const maxSample = copy.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
-      console.log("[voice-input] chunk captured:", { samples: copy.length, maxAbsSample: maxSample.toFixed(4) });
       onChunk(copy);
     };
     source.connect(processor);
@@ -122,7 +122,7 @@ type MicStatus = "idle" | "requesting-permission" | "loading-model" | "listening
  * - session: current DashboardSession
  * - onInsertText: callback to insert transcribed text into the CommandInput textarea
  */
-export function MicButton({ session, onInsertText }: SlotProps<"command-input-action">) {
+export function MicButton({ session, onInsertText, setInputText }: SlotProps<"command-input-action">) {
   // Merge with defaults so the button works immediately — even before the
   // server delivers the persisted plugin config via WebSocket.
   const rawConfig = usePluginConfig<VoiceInputConfig>();
@@ -131,10 +131,16 @@ export function MicButton({ session, onInsertText }: SlotProps<"command-input-ac
   const [status, setStatus] = useState<MicStatus>("idle");
   const [liveText, setLiveText] = useState("");
 
+  // Streaming state (only used when streamEnabled)
+  const streaming = useStreamingTranscription(config);
+
   const captureRef = useRef<ReturnType<typeof createAudioCapture> | null>(null);
   const chunksRef = useRef<Float32Array[]>([]);
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isHoldingRef = useRef(false);
+  /** True while startRecording is in-flight (awaiting getUserMedia). Allows
+   *  stopRecording to abort even before status reaches "listening". */
+  const startPendingRef = useRef(false);
   const sessionIdRef = useRef(session.id);
   sessionIdRef.current = session.id;
 
@@ -175,10 +181,79 @@ export function MicButton({ session, onInsertText }: SlotProps<"command-input-ac
     return () => window.removeEventListener("voice-input-transcript", onTranscript);
   }, [onInsertText]);
 
+  // Listen for server-side streaming partial results.
+  useEffect(() => {
+    function onPartial(e: Event) {
+      const detail = (e as CustomEvent).detail as {
+        sessionId: string;
+        matureText: string;
+        pendingText: string;
+      };
+      if (detail.sessionId !== sessionIdRef.current) return;
+      if (detail.matureText || detail.pendingText) {
+        setInputText?.((detail.matureText + " " + detail.pendingText).trim());
+      }
+    }
+    function onFinal(e: Event) {
+      const detail = (e as CustomEvent).detail as {
+        sessionId: string;
+        fullText: string;
+        error?: string;
+      };
+      if (detail.sessionId !== sessionIdRef.current) return;
+      if (detail.fullText && !detail.error) {
+        onInsertText?.(detail.fullText);
+      }
+      setStatus("idle");
+      setLiveText("");
+    }
+    window.addEventListener("voice-input-partial", onPartial);
+    window.addEventListener("voice-input-final", onFinal);
+    return () => {
+      window.removeEventListener("voice-input-partial", onPartial);
+      window.removeEventListener("voice-input-final", onFinal);
+    };
+  }, [onInsertText]);
+
   const startRecording = useCallback(async () => {
+    if (startPendingRef.current) return; // debounce double-clicks
+    startPendingRef.current = true;
     try {
-      console.debug("[voice-input] startRecording:", { engine: config.transcriptionEngine, modelLoaded: isModelLoaded() });
+      console.debug("[voice-input] startRecording:", { engine: config.transcriptionEngine, streamEnabled: config.streamEnabled, modelLoaded: isModelLoaded() });
       setStatus("requesting-permission");
+
+      // ── Streaming mode (client-side) ──
+      if (config.streamEnabled && config.transcriptionEngine === "client") {
+        await streaming.start();
+        setStatus("listening");
+        return;
+      }
+
+      // ── Streaming mode (server-side) ──
+      if (config.streamEnabled && config.transcriptionEngine === "server") {
+        // Start server-side streaming via new protocol messages
+        send({
+          type: "voice_input_stream_start",
+          sessionId: session.id,
+        });
+
+        const capture = createAudioCapture((chunk) => {
+          const bytes = new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+          const base64 = btoa(String.fromCharCode(...bytes));
+          send({
+            type: "voice_input_stream_chunk",
+            sessionId: session.id,
+            chunk: base64,
+            seq: 0,
+          });
+        });
+        captureRef.current = capture;
+        await capture.start();
+        setStatus("listening");
+        return;
+      }
+
+      // ── One-shot mode (existing) ──
 
       // Client mode: lazily load parakeet.js model on first use
       if (config.transcriptionEngine === "client" && !isModelLoaded() && !isLoadingModel()) {
@@ -209,23 +284,88 @@ export function MicButton({ session, onInsertText }: SlotProps<"command-input-ac
       const msg = e.name === "NotAllowedError"
         ? "Microphone permission denied"
         : e.message || "Unknown error";
+      console.warn("[voice-input] startRecording error:", msg);
       setStatus("error");
       setLiveText(msg);
+    } finally {
+      startPendingRef.current = false;
     }
-  }, [config]);
+  }, [config, session, send, streaming]);
 
   const stopRecording = useCallback(async () => {
+    // ── Streaming mode (client-side) ──
+    if (config.streamEnabled && config.transcriptionEngine === "client") {
+      const text = streaming.stop();
+      if (text) onInsertText?.(text);
+      startPendingRef.current = false;
+      setStatus("idle");
+      setLiveText("");
+      return;
+    }
+
+    // ── Streaming mode (server-side) ──
+    if (config.streamEnabled && config.transcriptionEngine === "server") {
+      const hadCapture = captureRef.current;
+      captureRef.current?.stop();
+      captureRef.current = null;
+
+      if (!hadCapture) {
+        startPendingRef.current = false;
+        setStatus("idle");
+        setLiveText("");
+        return;
+      }
+
+      send({
+        type: "voice_input_stream_stop",
+        sessionId: session.id,
+      });
+      // Wait for voice_input_final event
+      await new Promise<void>((resolve) => {
+        let done = false;
+        function onFinal(e: Event) {
+          if (done) return;
+          const detail = (e as CustomEvent).detail as {
+            sessionId: string; fullText: string; error?: string;
+          };
+          if (detail.sessionId !== session.id) return;
+          done = true;
+          window.removeEventListener("voice-input-final", onFinal);
+          if (detail.fullText && !detail.error) {
+            onInsertText?.(detail.fullText);
+          }
+          resolve();
+        }
+        window.addEventListener("voice-input-final", onFinal);
+      });
+      startPendingRef.current = false;
+      setStatus("idle");
+      setLiveText("");
+      return;
+    }
+
+    // ── One-shot mode (existing) ──
+    const hadCapture = captureRef.current;
     captureRef.current?.stop();
     captureRef.current = null;
-    setStatus("transcribing");
-    setLiveText("Transcribing...");
 
     const allChunks = chunksRef.current;
     chunksRef.current = [];
 
+    // If recording never started (e.g. stop was called during getUserMedia
+    // permission prompt), just reset to idle.
+    if (!hadCapture) {
+      startPendingRef.current = false;
+      setStatus("idle");
+      setLiveText("");
+      return;
+    }
+
+    setStatus("transcribing");
+    setLiveText("Transcribing...");
+
     const totalSamples = allChunks.reduce((sum, c) => sum + c.length, 0);
     const durationSec = totalSamples / 16000;
-    console.log("[voice-input] stopRecording:", { chunkCount: allChunks.length, totalSamples, durationSec: durationSec.toFixed(2) + "s" });
 
     try {
       if (config.transcriptionEngine === "client") {
@@ -274,35 +414,36 @@ export function MicButton({ session, onInsertText }: SlotProps<"command-input-ac
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
+      startPendingRef.current = false;
       setStatus("error");
       setLiveText(`Transcription failed: ${msg}`);
       return;
     }
 
+    startPendingRef.current = false;
     setStatus("idle");
     setLiveText("");
-  }, [config, session, onInsertText, send]);
+  }, [config, session, onInsertText, send, streaming]);
 
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    e.preventDefault();
     if (config.mode === "push-to-talk") {
+      e.preventDefault();
       isHoldingRef.current = true;
       holdTimerRef.current = setTimeout(() => {
         if (isHoldingRef.current) startRecording();
-      }, 200); // 200ms hold threshold to distinguish tap from accidental touch
+      }, 200);
     }
   }, [config.mode, startRecording]);
 
   const handlePointerUp = useCallback((e: React.PointerEvent) => {
-    e.preventDefault();
-    if (holdTimerRef.current) {
-      clearTimeout(holdTimerRef.current);
-      holdTimerRef.current = null;
-    }
-    isHoldingRef.current = false;
-
     if (config.mode === "push-to-talk") {
-      if (status === "listening") {
+      e.preventDefault();
+      if (holdTimerRef.current) {
+        clearTimeout(holdTimerRef.current);
+        holdTimerRef.current = null;
+      }
+      isHoldingRef.current = false;
+      if (status === "listening" || status === "requesting-permission" || startPendingRef.current) {
         stopRecording();
       }
     }
@@ -311,7 +452,7 @@ export function MicButton({ session, onInsertText }: SlotProps<"command-input-ac
   const handleClick = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     if (config.mode === "toggle") {
-      if (status === "listening") {
+      if (status === "listening" || status === "requesting-permission" || startPendingRef.current) {
         stopRecording();
       } else if (status === "idle" || status === "error") {
         startRecording();
@@ -330,17 +471,22 @@ export function MicButton({ session, onInsertText }: SlotProps<"command-input-ac
   }, []);
 
   const isActive = status === "listening" || status === "loading-model";
-  const isProcessing = status === "transcribing" || status === "requesting-permission" || status === "loading-model";
+  const isStarting = status === "requesting-permission";
+  const isProcessing = status === "transcribing" || status === "loading-model";
 
   const statusRing = isActive ? (
-    <span className="absolute inset-[-2px] rounded-full border-2 border-red-500 animate-[voice-input-pulse_1.5s_ease-in-out_infinite]" />
+    <span className="absolute inset-[-2px] rounded-full border-2 border-red-500" />
+  ) : isStarting ? (
+    <span className="absolute inset-[-2px] rounded-full border-2 border-red-500 animate-[voice-input-glow_1s_ease-in-out_infinite]" />
   ) : null;
 
   const btnBg = isActive
     ? "bg-red-500 text-white"
-    : status === "error"
-      ? "bg-amber-500 text-white"
-      : "text-[var(--text-muted)]";
+    : isStarting
+      ? "bg-red-400/30 text-red-400"
+      : status === "error"
+        ? "bg-amber-500 text-white"
+        : "text-[var(--text-muted)]";
 
   const btnCursor = isProcessing ? "cursor-wait opacity-50" : "cursor-pointer";
 
@@ -351,7 +497,7 @@ export function MicButton({ session, onInsertText }: SlotProps<"command-input-ac
       <button
         type="button"
         aria-label={isActive ? "Stop recording" : "Start voice input"}
-        title={config.mode === "push-to-talk" ? "Hold to record" : "Click to toggle recording"}
+        title={liveText || (config.mode === "push-to-talk" ? "Hold to record" : "Click to toggle recording")}
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
         onPointerLeave={handlePointerLeave}
@@ -364,18 +510,18 @@ export function MicButton({ session, onInsertText }: SlotProps<"command-input-ac
           size={0.8}
         />
         {statusRing}
+        {status === "error" && (
+          <span className="sr-only" role="alert">{liveText}</span>
+        )}
       </button>
-      {liveText && (
-        <span
-          className={`text-[11px] truncate max-w-[200px] ml-1 ${textColor}`}
-        >
-          {liveText}
-        </span>
-      )}
       <style>{`
         @keyframes voice-input-pulse {
           0%, 100% { opacity: 1; transform: scale(1); }
           50% { opacity: 0.5; transform: scale(1.1); }
+        }
+        @keyframes voice-input-glow {
+          0%, 100% { box-shadow: 0 0 4px 2px rgba(239, 68, 68, 0.3); border-color: rgba(239, 68, 68, 0.4); }
+          50% { box-shadow: 0 0 10px 4px rgba(239, 68, 68, 0.7); border-color: rgba(239, 68, 68, 0.9); }
         }
       `}</style>
     </div>
@@ -528,6 +674,26 @@ export function VoiceInputSettings() {
             </label>
           )}
         </>
+      )}
+
+      {/* Streaming transcription */}
+      <label className="flex items-center gap-2 mb-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={local.streamEnabled}
+          onChange={(e) => update({ streamEnabled: e.target.checked })}
+          className="w-3.5 h-3.5 rounded border border-[var(--border-secondary)]"
+        />
+        <span className="text-xs font-medium text-[var(--text-secondary)] select-none">
+          Streaming transcription
+        </span>
+      </label>
+      {local.streamEnabled && (
+        <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5 mb-2 ml-5.5">
+          Shows partial results as you speak instead of waiting until recording ends.
+          {local.transcriptionEngine === "client" && " Uses Web Worker for real-time inference."}
+          {local.transcriptionEngine === "server" && " Uses server-side windowed transcription."}
+        </p>
       )}
 
       {/* VAD threshold */}

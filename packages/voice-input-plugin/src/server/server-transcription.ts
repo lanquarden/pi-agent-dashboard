@@ -28,6 +28,7 @@ export interface VoiceInputServerConfig {
   parakeetModelRepo: string;
   vadThreshold: number;
   parakeetModelUrl: string;
+  streamEnabled?: boolean;
 }
 
 interface ModelCache {
@@ -54,7 +55,7 @@ let _modelLoadPromise: Promise<ModelCache> | null = null;
  * Files are cached on disk at ~/.pi/dashboard/voice-input-models/.
  * Guarded against concurrent calls during first load.
  */
-async function ensureParakeetModel(repoId: string): Promise<ModelCache> {
+export async function ensureParakeetModel(repoId: string): Promise<ModelCache> {
   if (_modelCache) return _modelCache;
   if (_modelLoadPromise) return _modelLoadPromise;
 

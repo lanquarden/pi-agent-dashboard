@@ -491,7 +491,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
             target.style.height = Math.min(target.scrollHeight, 120) + "px";
           }}
         />
-        {session && <CommandInputActionSlot session={session} onInsertText={(text) => setText((prev) => prev + text)} />}
+        {session && <CommandInputActionSlot session={session} onInsertText={(text) => setText((prev) => prev + text)} setInputText={setText} />}
         <button
           onClick={() => handleSend("steer")}
           /* Send button mirrors textarea: enabled during streaming so the

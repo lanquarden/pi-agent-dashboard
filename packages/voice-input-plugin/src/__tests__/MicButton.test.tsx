@@ -147,7 +147,7 @@ describe("MicButton", () => {
 
   it("renders a mic button with accessible label", () => {
     render(
-      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} pluginContext={undefined} />),
+      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} setInputText={vi.fn()} pluginContext={undefined} />),
     );
     const btn = screen.getByRole("button", { name: /start voice input/i });
     expect(btn).toBeDefined();
@@ -156,7 +156,7 @@ describe("MicButton", () => {
   it("shows push-to-talk title when mode is push-to-talk", () => {
     seedConfig({ mode: "push-to-talk" });
     render(
-      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} pluginContext={undefined} />),
+      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} setInputText={vi.fn()} pluginContext={undefined} />),
     );
     const btn = screen.getByRole("button");
     expect(btn.getAttribute("title")).toContain("Hold to record");
@@ -165,7 +165,7 @@ describe("MicButton", () => {
   it("shows toggle title when mode is toggle", () => {
     seedConfig({ mode: "toggle" });
     render(
-      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} pluginContext={undefined} />),
+      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} setInputText={vi.fn()} pluginContext={undefined} />),
     );
     const btn = screen.getByRole("button");
     expect(btn.getAttribute("title")).toContain("Click to toggle");
@@ -177,7 +177,7 @@ describe("MicButton", () => {
     restoreMocks = mockGetUserMedia();
 
     render(
-      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} pluginContext={undefined} />),
+      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} setInputText={vi.fn()} pluginContext={undefined} />),
     );
 
     const btn = screen.getByRole("button");
@@ -208,7 +208,7 @@ describe("MicButton", () => {
     restoreMocks = mockGetUserMedia();
 
     render(
-      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} pluginContext={undefined} />),
+      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} setInputText={vi.fn()} pluginContext={undefined} />),
     );
 
     const btn = screen.getByRole("button");
@@ -229,7 +229,7 @@ describe("MicButton", () => {
     seedConfig({ mode: "toggle" });
 
     render(
-      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} pluginContext={undefined} />),
+      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} setInputText={vi.fn()} pluginContext={undefined} />),
     );
 
     const btn = screen.getByRole("button");
@@ -267,7 +267,7 @@ describe("MicButton", () => {
     });
 
     render(
-      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} pluginContext={undefined} />),
+      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} setInputText={vi.fn()} pluginContext={undefined} />),
     );
 
     const btn = screen.getByRole("button");
@@ -288,7 +288,7 @@ describe("MicButton", () => {
     const onInsertText = vi.fn();
 
     render(
-      wrap(<MicButton session={makeSession()} onInsertText={onInsertText} pluginContext={undefined} />),
+      wrap(<MicButton session={makeSession()} onInsertText={onInsertText} setInputText={vi.fn()} pluginContext={undefined} />),
     );
 
     const btn = screen.getByRole("button");
@@ -316,7 +316,7 @@ describe("MicButton", () => {
 
   // ── Disabled state during processing ─────────────────────────────────────
 
-  it("disables the button while requesting permission", async () => {
+  it("keeps button clickable while requesting permission (so user can cancel)", async () => {
     Object.defineProperty(navigator, "mediaDevices", {
       value: {
         // Never resolves — stays in "requesting permission"
@@ -327,7 +327,7 @@ describe("MicButton", () => {
     });
 
     render(
-      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} pluginContext={undefined} />),
+      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} setInputText={vi.fn()} pluginContext={undefined} />),
     );
 
     const btn = screen.getByRole("button");
@@ -335,7 +335,7 @@ describe("MicButton", () => {
 
     await waitFor(
       () => {
-        expect((btn as HTMLButtonElement).disabled).toBe(true);
+        expect((btn as HTMLButtonElement).disabled).toBe(false);
       },
       { timeout: 1000 },
     );
@@ -347,7 +347,7 @@ describe("MicButton", () => {
     restoreMocks = mockGetUserMedia();
 
     const { unmount } = render(
-      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} pluginContext={undefined} />),
+      wrap(<MicButton session={makeSession()} onInsertText={vi.fn()} setInputText={vi.fn()} pluginContext={undefined} />),
     );
 
     const btn = screen.getByRole("button");

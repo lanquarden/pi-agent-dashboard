@@ -663,6 +663,16 @@ export function useMessageHandler(
         window.dispatchEvent(new CustomEvent("voice-input-transcript", { detail: msg }));
         break;
 
+      case "voice_input_partial":
+        // Forward to voice-input plugin for streaming partial results.
+        window.dispatchEvent(new CustomEvent("voice-input-partial", { detail: msg }));
+        break;
+
+      case "voice_input_final":
+        // Forward to voice-input plugin for streaming final result.
+        window.dispatchEvent(new CustomEvent("voice-input-final", { detail: msg }));
+        break;
+
       case "plugin_config_update":
         // Update the plugin config store and re-render any usePluginConfig consumers.
         applyPluginConfigUpdate(msg);
