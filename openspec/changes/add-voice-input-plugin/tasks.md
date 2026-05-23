@@ -34,8 +34,8 @@
 
 - [x] 4.1 Dynamically import `parakeet.js` (`fromHub` or `fromUrls`) on first use — avoid bundling the 600MB model.
 - [x] 4.2 Load Parakeet ONNX model (encoder, decoder, tokenizer) from HuggingFace CDN or custom URL.
-- [x] 4.3 Run ONNX inference in a Web Worker to avoid blocking the main thread.
-- [x] 4.4 Feed PCM chunks from audio capture to the parakeet.js streaming transcriber.
+- [x] 4.3 ONNX inference runs via parakeet.js backend (WebGPU / WASM), which manages Web Workers internally.
+- [x] 4.4 Concatenate accumulated PCM chunks and transcribe via single-shot `model.transcribe()` — streaming transcriber was unstable (decoder stuck after first utterance, emitting only `.` placeholders).
 - [x] 4.5 Return transcribed text via `onInsertText` callback.
 - [x] 4.6 Handle model download progress and errors (network failure, out-of-memory).
 
@@ -43,9 +43,9 @@
 
 - [x] 5.1 Install `onnxruntime-node` as dependency of voice-input-plugin.
 - [x] 5.2 Download Parakeet ONNX model files (encoder, decoder, tokenizer) from HuggingFace on server startup.
-- [x] 5.3 Implement mel spectrogram preprocessing in pure JS (same algorithm as parakeet.js `src/mel.js`).
+- [x] 5.3 Compute mel spectrogram via parakeet.js `JsPreprocessor` (128-bin NeMo-style features); the model expects 128 bins, not the originally planned 80-bin Slaney.
 - [x] 5.4 Create ONNX inference sessions for encoder and decoder.
-- [x] 5.5 Implement streaming transcription: incremental decoder state handoff between chunks.
+- [x] 5.5 Implement single-shot TDT frame-by-frame decoder loop: accumulate all chunks on `final: true`, then run encoder → per-frame token+duration argmax with LSTM state management. Per-chunk streaming abandoned — TDT models perform poorly on ~100ms inputs.
 - [x] 5.6 Protocol: browser sends base64 PCM chunks via `voice_input_audio` WS message, server returns `voice_input_transcript`.
 - [x] 5.7 Add OpenAI Whisper API fallback as alternative server engine.
 

@@ -79,6 +79,10 @@ The voice-input plugin supports two transcription paths sharing the same Parakee
 
 Both paths use the same ONNX model files from HuggingFace (`ysdede/parakeet-tdt-0.6b-v3-onnx`). Server mode also supports OpenAI Whisper API as a fallback.
 
+**Streaming vs single-shot**: The original design used streaming transcription (per-chunk `processChunk` → incremental decoder state). This was abandoned in favor of single-shot on both paths:
+- **Client**: The parakeet streaming transcriber's decoder state converged to a blank/eos token on early chunks, emitting only `.` placeholders for all subsequent audio. Single-shot `model.transcribe(fullAudio)` lets the model see complete context and produces accurate multi-sentence output.
+- **Server**: TDT models need more than ~100ms of audio to produce meaningful tokens. The server accumulates all base64 PCM chunks in a `pendingRecordings` map and runs the full TDT frame-by-frame decoder loop once on `final: true`.
+
 ### Why not whisper.cpp
 
 whisper.cpp uses GGML-format models — a different model family. Using Parakeet ONNX on both sides means:

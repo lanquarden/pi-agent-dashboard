@@ -31,14 +31,16 @@ For speech-to-text, parakeet.js provides browser-native ASR via ONNX Runtime Web
 
 Both use the same Parakeet TDT 0.6B v3 ONNX model files from HuggingFace (`ysdede/parakeet-tdt-0.6b-v3-onnx`). Server mode also supports OpenAI Whisper API as a fallback.
 
-### What's currently stubbed (needs real implementation)
+### What was implemented (post-proposal)
 
-| Component | Current state | Needed |
-|-----------|--------------|--------|
-| Client transcription | 500ms placeholder text | Load parakeet.js, feed PCM chunks to ONNX encoder/decoder in Web Worker |
-| Server audio transport | Protocol defined, stubs in client + server | Base64-encode audio chunks, send via `voice_input_audio` WS messages |
-| Server transcription | Placeholder echo | Integrate onnxruntime-node + Parakeet ONNX models |
-| Model download | — | Download ONNX model files from HuggingFace CDN on first use |
+After the initial scaffold, both client and server transcription pipelines were completed with a single-shot architecture:
+
+| Component | Implementation |
+|-----------|---------------|
+| Client transcription | `model.transcribe()` on concatenated audio — single-shot after decoder state instability in streaming mode |
+| Server audio transport | Base64 PCM chunks via `voice_input_audio` WS messages, accumulated until `final: true` |
+| Server transcription | Parakeet int8 ONNX via `onnxruntime-node` + `JsPreprocessor` (128-bin NeMo mel) + TDT frame-by-frame decoder loop; OpenAI Whisper API fallback |
+| Model download | Client: `fromHub`/`fromUrls` via parakeet.js on first use; Server: `ensureParakeetModel()` downloads to `~/.pi/dashboard/voice-input-models/` |
 
 ## Capabilities
 
