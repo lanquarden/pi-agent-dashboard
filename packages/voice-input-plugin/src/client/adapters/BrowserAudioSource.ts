@@ -1,9 +1,8 @@
 /**
- * BrowserAudioSource — getUserMedia → AudioContext → ScriptProcessorNode
+ * BrowserAudioSource — ScriptProcessorNode-based microphone capture
  * implementing IAudioSource for browser streaming transcription.
  *
- * Captures 16kHz mono PCM and emits Float32Array chunks via onChunk.
- * Uses ScriptProcessorNode with 4096-sample buffer (~256ms at 16kHz).
+ * Captures mono 16kHz PCM and emits Float32Array chunks.
  */
 import type { IAudioSource } from "../../shared/streaming/types.js";
 
@@ -14,11 +13,12 @@ export class BrowserAudioSource implements IAudioSource {
   private source: MediaStreamAudioSourceNode | null = null;
   private active: boolean = false;
 
-  private readonly sampleRate: number;
+  private readonly targetRate: number;
+
   private readonly chunkCallbacks: Array<(chunk: Float32Array) => void> = [];
 
   constructor(sampleRate = 16000) {
-    this.sampleRate = sampleRate;
+    this.targetRate = sampleRate;
   }
 
   onChunk(cb: (chunk: Float32Array) => void): () => void {
@@ -34,14 +34,14 @@ export class BrowserAudioSource implements IAudioSource {
 
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: {
-        sampleRate: { ideal: this.sampleRate },
+        sampleRate: { ideal: this.targetRate },
         channelCount: 1,
         echoCancellation: true,
         noiseSuppression: true,
       },
     });
 
-    this.audioContext = new AudioContext({ sampleRate: this.sampleRate });
+    this.audioContext = new AudioContext({ sampleRate: this.targetRate });
 
     if (this.audioContext.state === "suspended") {
       await this.audioContext.resume();

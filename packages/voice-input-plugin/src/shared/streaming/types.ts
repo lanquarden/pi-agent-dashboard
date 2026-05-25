@@ -70,6 +70,8 @@ export interface IRingBuffer {
 
 /** Options for a window-level transcription call. */
 export interface TranscribeOpts {
+  /** Language code hint (e.g. "en"). */
+  language?: string;
   /** Whether to include per-word timestamps. */
   returnTimestamps?: boolean;
   /** Whether to include token IDs. */

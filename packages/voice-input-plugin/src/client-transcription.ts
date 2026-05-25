@@ -127,6 +127,7 @@ export async function loadModel(
         encoderQuant: "fp32",
         decoderQuant: "int8",
         preprocessorBackend: "js",
+        cpuThreads: 4,
         progress: progressCb,
       });
       _model = model;

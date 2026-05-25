@@ -40,13 +40,13 @@ export function getOrCreateStream(
 
   const audioSource = new WebSocketAudioSource();
   const ringBuffer = new NodeRingBuffer(120, 16000);
-  const vad = new EnergyVAD({ sampleRate: 16000 });
+  const vad = new EnergyVAD({ sampleRate: 16000, energyThreshold: 0.08 });
   const engine = new NodeInferenceEngine(getModel);
   const windowBuilder = new WindowBuilder(ringBuffer, vad, {
     sampleRate: 16000,
-    minDurationSec: 3.0,
+    minDurationSec: 5.0,
     maxDurationSec: 30.0,
-    minInitialDurationSec: 1.5,
+    minInitialDurationSec: 3.0,
     debug: false,
   });
   const merger = new UtteranceBasedMerger({ useNLP: true });

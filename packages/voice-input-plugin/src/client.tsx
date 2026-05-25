@@ -215,6 +215,27 @@ export function MicButton({ session, onInsertText, setInputText }: SlotProps<"co
     };
   }, [onInsertText]);
 
+  // Wire client-side streaming state to UI: show partial transcript as live text
+  useEffect(() => {
+    if (status === "listening" && config.streamEnabled && config.transcriptionEngine === "client") {
+      const text = (streaming.matureText + " " + streaming.pendingText).trim();
+      if (text) {
+        setInputText?.(text);
+        setLiveText("● " + text.slice(0, 40) + (text.length > 40 ? "…" : ""));
+      }
+    }
+  }, [streaming.matureText, streaming.pendingText, status, config.streamEnabled, config.transcriptionEngine]);
+
+  // Surface client-side streaming errors
+  useEffect(() => {
+    if (streaming.error) {
+      console.warn("[voice-input] streaming error surfaced:", streaming.error);
+      setStatus("error");
+      setLiveText(`Transcription failed: ${streaming.error}`);
+      setTimeout(() => { setStatus("idle"); setLiveText(""); }, 5000);
+    }
+  }, [streaming.error]);
+
   const startRecording = useCallback(async () => {
     if (startPendingRef.current) return; // debounce double-clicks
     startPendingRef.current = true;
@@ -222,9 +243,28 @@ export function MicButton({ session, onInsertText, setInputText }: SlotProps<"co
       console.debug("[voice-input] startRecording:", { engine: config.transcriptionEngine, streamEnabled: config.streamEnabled, modelLoaded: isModelLoaded() });
       setStatus("requesting-permission");
 
+      // ── Ensure model is loaded for client-side transcription (both streaming and one-shot) ──
+      if (config.transcriptionEngine === "client" && !isModelLoaded()) {
+        setStatus("loading-model");
+        setLiveText("Loading speech model (~600MB)...");
+        try {
+          await loadModel(config, (pct) => {
+            setLiveText(`Loading speech model... ${pct}%`);
+          });
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          setStatus("error");
+          setLiveText(`Model load failed: ${msg}`);
+          startPendingRef.current = false;
+          return;
+        }
+      }
+
       // ── Streaming mode (client-side) ──
       if (config.streamEnabled && config.transcriptionEngine === "client") {
-        await streaming.start();
+        const model = await loadModel(config); // returns cached model
+        console.debug("[voice-input] starting streaming with pre-loaded model");
+        await streaming.start(model);
         setStatus("listening");
         return;
       }
@@ -255,20 +295,10 @@ export function MicButton({ session, onInsertText, setInputText }: SlotProps<"co
 
       // ── One-shot mode (existing) ──
 
-      // Client mode: lazily load parakeet.js model on first use
-      if (config.transcriptionEngine === "client" && !isModelLoaded() && !isLoadingModel()) {
-        setStatus("loading-model");
-        setLiveText("Loading speech model (~600MB)...");
-        try {
-          await loadModel(config, (pct) => {
-            setLiveText(`Loading speech model... ${pct}%`);
-          });
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          setStatus("error");
-          setLiveText(`Model load failed: ${msg}`);
-          return;
-        }
+      // Model is already loaded by the block above (or was cached from previous recordings).
+      // loadModel() returns immediately if already loaded.
+      if (config.transcriptionEngine === "client") {
+        await loadModel(config); // no-op if already loaded, ensure cached
       }
 
       resetStreamer();

@@ -94,6 +94,7 @@ export class WindowBuilder {
     }
 
     const availableFrames = endFrame - baseFrame;
+    const availableSec = availableFrames / this.config.sampleRate;
 
     // ── Initial mode (before first sentence) ──
     if (!this.firstSentenceReceived) {
@@ -101,12 +102,19 @@ export class WindowBuilder {
         this.config.minInitialDurationSec * this.config.sampleRate,
       );
       if (availableFrames < minInitialFrames) {
+        if (this.config.debug && availableFrames > 0 && availableFrames % (this.config.sampleRate * 2) < 4096) {
+          console.debug("[WindowBuilder] waiting for initial audio:", availableSec.toFixed(1), "s /", this.config.minInitialDurationSec.toFixed(1), "s");
+        }
         return null;
       }
 
       const maxFrames = Math.round(this.config.maxDurationSec * this.config.sampleRate);
       const clippedEnd = Math.min(endFrame, baseFrame + maxFrames);
       const duration = (clippedEnd - baseFrame) / this.config.sampleRate;
+
+      if (this.config.debug) {
+        console.debug("[WindowBuilder] initial window built:", duration.toFixed(2), "s");
+      }
 
       return {
         startFrame: baseFrame,
@@ -163,6 +171,10 @@ export class WindowBuilder {
     }
 
     const durationSeconds = windowFrames / this.config.sampleRate;
+
+    if (this.config.debug) {
+      console.debug("[WindowBuilder] window built:", durationSeconds.toFixed(2), "s", "(mature:", (this.matureCursorFrame / this.config.sampleRate).toFixed(2), "s)");
+    }
 
     return {
       startFrame,

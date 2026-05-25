@@ -1,15 +1,18 @@
 /**
- * BrowserInferenceEngine — Web Worker bridge implementing ITranscriptionEngine.
+ * BrowserInferenceEngine — implements ITranscriptionEngine.
  *
- * Offloads parakeet.js model loading and ONNX inference to a Web Worker
- * to prevent UI stuttering on the main thread.
+ * Two modes:
+ * - Main-thread: when constructed with a pre-loaded parakeet model, runs
+ *   inference directly on the main thread (no worker). This is the default
+ *   for client-side streaming — the Blob URL worker cannot resolve bare
+ *   module specifiers like `import("parakeet.js")` in the browser.
+ * - Worker (legacy): when constructed without a model, spawns a Web Worker
+ *   with inline Blob. Kept for future use once worker module resolution
+ *   is solved (e.g. Vite's native Worker bundling).
  *
  * Audio buffers are transferred with zero-copy Transferable for performance.
  * The worker loads the model once and handles multiple transcribe() calls,
  * supporting incremental decoder cache for overlapping streaming windows.
- *
- * The worker code is created from an inline Blob to avoid a separate file
- * and bundler complexity — the parakeet.js import is resolved at runtime.
  */
 import type {
   ITranscriptionEngine,
@@ -95,6 +98,8 @@ function createWorkerScript(): string {
 // ── Inference engine ────────────────────────────────────────────────────────
 
 export class BrowserInferenceEngine implements ITranscriptionEngine {
+  /** Pre-loaded parakeet model for main-thread inference (null = use worker). */
+  private model: any | null = null;
   private worker: Worker | null = null;
   private messageId: number = 0;
   private pending: Map<
@@ -105,7 +110,21 @@ export class BrowserInferenceEngine implements ITranscriptionEngine {
   private loadPromise: Promise<void> | null = null;
   private disposed: boolean = false;
 
-  constructor() {
+  /**
+   * @param model - Pre-loaded parakeet model for main-thread inference.
+   *   When provided, no Web Worker is created. When omitted, falls back
+   *   to the Blob URL worker path (which will fail in browser because
+   *   bare `import("parakeet.js")` cannot be resolved).
+   */
+  constructor(model?: any) {
+    if (model) {
+      this.model = model;
+      this.loaded = true;
+      console.debug("[BrowserInferenceEngine] using main-thread inference");
+      return;
+    }
+
+    console.debug("[BrowserInferenceEngine] creating Web Worker (Blob URL)");
     const blob = new Blob([createWorkerScript()], {
       type: "application/javascript",
     });
@@ -143,15 +162,17 @@ export class BrowserInferenceEngine implements ITranscriptionEngine {
   }
 
   /**
-   * Ensure the model is loaded in the worker. Called automatically on first transcribe().
+   * Ensure the model is loaded. No-op if pre-loaded model was provided.
    */
   async loadModel(): Promise<void> {
     if (this.loaded) return;
     if (this.loadPromise) return this.loadPromise;
 
+    console.debug("[BrowserInferenceEngine] loading model via worker...");
     this.loadPromise = (async () => {
       await this.sendRequest("LOAD_MODEL");
       this.loaded = true;
+      console.debug("[BrowserInferenceEngine] worker model loaded");
     })();
 
     return this.loadPromise;
@@ -162,6 +183,33 @@ export class BrowserInferenceEngine implements ITranscriptionEngine {
     sampleRate: number,
     opts?: TranscribeOpts,
   ): Promise<TranscribeResult> {
+    if (this.model) {
+      const startMs = performance.now();
+      console.debug("[BrowserInferenceEngine] transcribe (main-thread):", { samples: audio.length, sampleRate, opts });
+      // Pass opts through to the model. Match keet's v4 call signature:
+      // no `language` (not a valid parakeet option — may corrupt output),
+      // frameStride defaults to 1 for normal decoder speed.
+      const result = await this.model.transcribe(audio, sampleRate, {
+        returnTimestamps: opts?.returnTimestamps ?? false,
+        timeOffset: opts?.timeOffset,
+        frameStride: opts?.frameStride ?? 1,
+        ...(opts?.incremental ? { incremental: opts.incremental } : {}),
+      });
+      const elapsed = (performance.now() - startMs).toFixed(0);
+      const uttText = result?.utterance_text || result?.text || "";
+      console.debug("[BrowserInferenceEngine] transcribe result:", { text: uttText.slice(0, 80), textLen: uttText.length, words: result?.words?.length ?? 0, elapsedMs: elapsed });
+      return {
+        utterance_text: uttText,
+        words: result?.words?.map((w: any) => ({
+          text: w.text,
+          start_time: w.start_time,
+          end_time: w.end_time,
+          confidence: w.confidence,
+        })),
+        metrics: result?.metrics ? { ...result.metrics } : undefined,
+      };
+    }
+
     await this.loadModel();
 
     // Transfer audio buffer for zero-copy
@@ -175,6 +223,10 @@ export class BrowserInferenceEngine implements ITranscriptionEngine {
   }
 
   async resetCache(): Promise<void> {
+    if (this.model) {
+      this.model.resetMelCache?.();
+      return;
+    }
     await this.sendRequest("RESET_CACHE");
   }
 
@@ -183,6 +235,10 @@ export class BrowserInferenceEngine implements ITranscriptionEngine {
    */
   dispose(): void {
     this.disposed = true;
+    if (this.model) {
+      this.model = null;
+      return;
+    }
     this.worker?.terminate();
     this.worker = null;
     for (const [, handlers] of this.pending) {

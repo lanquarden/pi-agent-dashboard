@@ -16,6 +16,8 @@
  * wink-nlp is a soft dependency — the merger falls back to regex sentence
  * splitting if the library is unavailable.
  */
+import winkNLP from "wink-nlp";
+import model from "wink-eng-lite-web-model";
 import type { ASRResult, ASRWord, MergerResult, MergerSentence } from "./types.js";
 
 // ── Config ──────────────────────────────────────────────────────────────────
@@ -61,8 +63,8 @@ const SENTENCE_END_RE = /[.!?]$/;
 
 export class UtteranceBasedMerger {
   private config: UtteranceBasedMergerConfig;
-  private nlp: { readDoc: (text: string) => { sentences: () => { out: () => string[] } } } | null = null;
-  private nlpLoadPromise: Promise<void> | null = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private nlp: any | null = null;
 
   // Mature (finalized) transcript
   private mergedTranscript: InternalWord[] = [];
@@ -93,26 +95,13 @@ export class UtteranceBasedMerger {
       this.nlp = null;
       return;
     }
-
-    this.nlpLoadPromise = (async () => {
-      try {
-        const winkNLP = (await import("wink-nlp")).default;
-        const model = (await import("wink-eng-lite-web-model")).default;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        this.nlp = winkNLP(model, ["sbd"]) as any;
-      } catch {
-        if (this.config.debug) {
-          console.warn("[UtteranceBasedMerger] wink-nlp not available, using heuristic splitter");
-        }
-        this.nlp = null;
+    try {
+      this.nlp = winkNLP(model, ["sbd"]);
+    } catch {
+      if (this.config.debug) {
+        console.warn("[UtteranceBasedMerger] wink-nlp not available, using heuristic splitter");
       }
-    })();
-  }
-
-  private async ensureNLP(): Promise<void> {
-    if (this.nlpLoadPromise) {
-      await this.nlpLoadPromise;
-      this.nlpLoadPromise = null;
+      this.nlp = null;
     }
   }
 
@@ -122,9 +111,7 @@ export class UtteranceBasedMerger {
    * Process one full ASR window result.
    * Returns updated mature/immature text.
    */
-  async processASRResult(asrResult: ASRResult): Promise<MergerResult> {
-    await this.ensureNLP();
-
+  processASRResult(asrResult: ASRResult): MergerResult {
     const incomingWords = this.normalizeWords(asrResult.words);
     if (incomingWords.length === 0) {
       return this.createResult(0, []);
@@ -132,6 +119,19 @@ export class UtteranceBasedMerger {
 
     const utteranceText = this.joinWords(incomingWords);
     const { sentences, detectionMethod } = this.splitSentences(utteranceText);
+
+    if (this.config.debug) {
+      console.debug(
+        "[UtteranceBasedMerger] processASRResult:",
+        JSON.stringify({
+          utteranceLen: utteranceText.length,
+          sentenceCount: sentences.length,
+          detectionMethod,
+          wordCount: incomingWords.length,
+          sentences: sentences.map((s) => s.slice(0, 60)),
+        }),
+      );
+    }
 
     const maturedThisCall: MergerSentence[] = [];
 
@@ -178,16 +178,64 @@ export class UtteranceBasedMerger {
         .slice(lastConsumedIdx)
         .map((w) => ({ ...w, finalized: false }));
     } else if (sentences.length === 1) {
-      // Single sentence — check if it's a duplicate
-      const joined = this.joinWords(incomingWords);
-      const sentenceEnd = incomingWords[incomingWords.length - 1].end_time;
-      if (this.isDuplicateSentence(joined, sentenceEnd)) {
+      // Single sentence — always hold as pending/immature.
+      // Overlapping windows will refine and eventually trigger multi-sentence
+      // finalization when a following sentence appears.
+      const singleText = this.joinWords(incomingWords);
+      const singleEnd = incomingWords[incomingWords.length - 1].end_time;
+      if (this.isDuplicateSentence(singleText, singleEnd)) {
         this.lastImmatureWords = [];
+      } else if (
+        // Don't replace a substantive pending text with garbage from a
+        // nearly-silent window (single punctuation, very short fragments).
+        this.lastImmatureWords.length > 0 &&
+        incomingWords.length <= 1 &&
+        /^[^a-zA-Z0-9]*$/.test(singleText)
+      ) {
+        // Keep existing pending text — this window's output is noise
+      } else if (
+        // Confirmed single sentence: the new window starts with the same
+        // text as the current pending, and the pending was punctuation-complete.
+        // This means the model has confirmed this text — finalize it.
+        this.lastImmatureWords.length > 0 &&
+        this.isSentenceComplete(this.joinWords(this.lastImmatureWords)) &&
+        singleText.startsWith(this.joinWords(this.lastImmatureWords))
+      ) {
+        // Finalize the confirmed pending text
+        const finalizedWords = this.lastImmatureWords.map((w) => ({ ...w, finalized: true }));
+        const startWordIndex = this.mergedTranscript.length;
+        this.mergedTranscript.push(...finalizedWords);
+        this.matureTextDirty = true;
+
+        const matureSentence = this.appendFinalizedSentence(
+          this.joinWords(this.lastImmatureWords),
+          finalizedWords,
+          startWordIndex,
+          detectionMethod,
+        );
+        if (matureSentence) maturedThisCall.push(matureSentence);
+
+        const pendingEnd = finalizedWords[finalizedWords.length - 1].end_time;
+        if (pendingEnd > this.matureCursorTime) {
+          this.matureCursorTime = pendingEnd;
+        }
+
+        // Only keep the NEW portion (beyond the confirmed prefix) as pending.
+        // If the new text is identical to the confirmed text, clear pending.
+        const pendingPrefix = this.joinWords(this.lastImmatureWords);
+        if (singleText.length > pendingPrefix.length) {
+          // Find which incoming words are new (beyond the confirmed prefix)
+          const newWords = incomingWords.slice(this.lastImmatureWords.length);
+          if (newWords.length > 0) {
+            this.lastImmatureWords = newWords.map((w) => ({ ...w, finalized: false }));
+          } else {
+            this.lastImmatureWords = [];
+          }
+        } else {
+          this.lastImmatureWords = [];
+        }
       } else {
-        this.lastImmatureWords = incomingWords.map((w) => ({
-          ...w,
-          finalized: false,
-        }));
+        this.lastImmatureWords = incomingWords.map((w) => ({ ...w, finalized: false }));
       }
     } else {
       this.lastImmatureWords = incomingWords.map((w) => ({ ...w, finalized: false }));
