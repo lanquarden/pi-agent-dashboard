@@ -22,15 +22,22 @@ const renderers = new Map<string, ToolRenderer>([
 
 const headerChipsRegistry = new Map<string, HeaderChipsFn>();
 
-/** Register a custom renderer for a tool name, with optional header chips */
+/** Function returning a plain-text summary string for the collapsed tool header row */
+export type SummaryFn = (args?: Record<string, unknown>) => string;
+const summaryRegistry = new Map<string, SummaryFn>();
+
+/** Register a custom renderer for a tool name, with optional header chips and/or summary override */
 export function registerToolRenderer(
   toolName: string,
   renderer: ToolRenderer,
-  opts?: { headerChips?: HeaderChipsFn },
+  opts?: { headerChips?: HeaderChipsFn; summary?: SummaryFn },
 ): void {
   renderers.set(toolName, renderer);
   if (opts?.headerChips) {
     headerChipsRegistry.set(toolName, opts.headerChips);
+  }
+  if (opts?.summary) {
+    summaryRegistry.set(toolName, opts.summary);
   }
 }
 
@@ -42,4 +49,9 @@ export function getToolRenderer(toolName: string): ToolRenderer {
 /** Get the header chips function for a tool (if registered by a plugin) */
 export function getToolHeaderChips(toolName: string): HeaderChipsFn | undefined {
   return headerChipsRegistry.get(toolName);
+}
+
+/** Get the summary override function for a tool (if registered by a plugin) */
+export function getToolSummary(toolName: string): SummaryFn | undefined {
+  return summaryRegistry.get(toolName);
 }
