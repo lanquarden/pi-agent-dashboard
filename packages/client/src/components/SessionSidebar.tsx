@@ -102,7 +102,27 @@ export function SessionSidebar({ sessions, selectedId, onSelect, onRename, error
                 </span>
               </div>
               <div className="ml-4 mt-0.5 flex items-center gap-2 text-xs text-[var(--text-tertiary)]">
-                {session.model && <span className="truncate">{session.model}</span>}
+                {session.model && (
+                  <span className="truncate">
+                    {(() => {
+                      const raw = session.model;
+                      const slashIdx = raw.indexOf("/");
+                      const provider = slashIdx > 0 ? raw.slice(0, slashIdx) : undefined;
+                      const id = slashIdx > 0 ? raw.slice(slashIdx + 1) : raw;
+                      const g: any = window as any;
+                      const list: Array<{provider:string;id:string;name?:string;providerName?:string}> | undefined = g.__piModelsList;
+                      if (list) {
+                        const match = list.find((m) => (provider ? m.provider === provider : true) && m.id === id);
+                        if (match && (match.name || match.providerName)) {
+                          const modelName = match.name && match.name.trim().length > 0 ? match.name : match.id;
+                          const provName = match.providerName && match.providerName.trim().length > 0 ? match.providerName : match.provider;
+                          return `${modelName} (${provName})`;
+                        }
+                      }
+                      return raw;
+                    })()}
+                  </span>
+                )}
               </div>
               <div className="ml-4 mt-0.5 flex items-center gap-3 text-xs text-[var(--text-muted)]">
                 <span title="Tokens in">↓{formatTokens(session.tokensIn)}</span>

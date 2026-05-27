@@ -464,6 +464,8 @@ export function createCommandHandler(
               const models = registry.getAvailable().map((m: any) => ({
                 provider: m.provider,
                 id: m.id,
+                name: m.name ?? m.id,
+                providerName: (registry.getProviderDisplayName?.(m.provider)) ?? m.provider,
               }));
               return { type: "models_list", sessionId, models };
             } catch { /* ignore */ }

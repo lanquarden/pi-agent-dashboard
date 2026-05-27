@@ -548,6 +548,21 @@ export default function App() {
     ? sessionStates.get(selectedId) ?? createInitialState()
     : createInitialState();
 
+  // Expose a global models list for friendly model labels in sidebar cards.
+  // Keep a small deduped array on window so non-selected sessions can still
+  // render friendly labels without plumbing modelsMap everywhere.
+  (window as any).__piModelsList = (() => {
+    const seen = new Set<string>();
+    const out: Array<{provider:string;id:string;name?:string;providerName?:string}> = [];
+    for (const list of modelsMap.values()) {
+      for (const m of list) {
+        const key = `${m.provider}/${m.id}`;
+        if (!seen.has(key)) { seen.add(key); out.push(m as any); }
+      }
+    }
+    return out;
+  })();
+
   // Per-session draft text + history recall for CommandInput.
   const selectedDraft = selectedId ? (drafts.get(selectedId) ?? "") : "";
   // Per-session pending images. Returns the stable EMPTY_IMAGES ref
@@ -1103,7 +1118,22 @@ export default function App() {
             </SessionAssetsProvider>
           </ErrorBoundary>
           <StatusBar
-            model={selectedState.model ?? selectedSession?.model}
+            model={(() => {
+              const raw = selectedState.model ?? selectedSession?.model;
+              const list = modelsMap.get(selectedId);
+              if (!raw) return raw;
+              if (!list) return raw;
+              const slashIdx = raw.indexOf("/");
+              const provider = slashIdx > 0 ? raw.slice(0, slashIdx) : undefined;
+              const id = slashIdx > 0 ? raw.slice(slashIdx + 1) : raw;
+              const match = list.find((m) => (provider ? m.provider === provider : true) && m.id === id);
+              if (match && (match.name || match.providerName)) {
+                const modelName = match.name && match.name.trim().length > 0 ? match.name : match.id;
+                const provName = match.providerName && match.providerName.trim().length > 0 ? match.providerName : match.provider;
+                return `${modelName} (${provName})`;
+              }
+              return raw;
+            })()}
             models={modelsMap.get(selectedId)}
             roles={rolesMap.get(selectedId)}
             thinkingLevel={selectedState.thinkingLevel ?? selectedSession?.thinkingLevel}

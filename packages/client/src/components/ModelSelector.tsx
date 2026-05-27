@@ -189,16 +189,18 @@ export function ModelSelector({ current, models, onSelect }: Props) {
               filtered.map((m, i) => {
                 const label = `${m.provider}/${m.id}`;
                 const isCurrent = label === current;
+                const friendly = (m.name || m.providerName) ? `${m.name ?? m.id} (${m.providerName ?? m.provider})` : label;
                 return (
                   <button
                     key={label}
                     data-model-item
                     onClick={() => handleSelect(m)}
-                    className={`w-full px-3 py-1 min-h-[44px] md:min-h-0 md:py-1 text-left text-xs font-mono flex items-center gap-2 ${
+                    className={`w-full px-3 py-1 min-h-[44px] md:min-h-0 md:py-1 text-left text-xs flex items-center gap-2 ${
                       i === selectedIndex ? "bg-[var(--bg-tertiary)]" : "hover:bg-[var(--bg-hover)]"
                     } ${isCurrent ? "text-[var(--accent-blue)]" : "text-[var(--text-secondary)]"}`}
                   >
-                    <span className="truncate">{label}</span>
+                    <span className="truncate">{friendly}</span>
+                    <span className="ml-auto text-[10px] text-[var(--text-muted)] font-mono">{label}</span>
                   </button>
                 );
               })

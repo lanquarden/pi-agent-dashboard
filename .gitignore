@@ -25,3 +25,4 @@ packages/electron/.vite
 site/.astro/
 *.tsbuildinfo
 .wtp.yml
+.pi/worktrees/
