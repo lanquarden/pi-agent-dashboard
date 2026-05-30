@@ -3,6 +3,8 @@ export type {
   Answers,
   NewModeAnswers,
   AugmentModeAnswers,
+  MfRemoteModeAnswers,
+  MfAugmentModeAnswers,
   AugmentProposal,
   WriteSink,
   SlotId,

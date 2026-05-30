@@ -8,11 +8,11 @@
  *    and a CurrentPluginLayer (so plugin hooks work correctly).
  * 4. Renders nothing when zero claims match.
  */
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useSyncExternalStore } from "react";
 import { useRoute, useLocation } from "wouter";
-import { useSlotRegistryOrNull, CurrentPluginLayer } from "./plugin-context.js";
+import { useSlotClaims, CurrentPluginLayer } from "./plugin-context.js";
 import { useShellSessionOrNull } from "./shell-sessions-context.js";
-import { forSession, forSessionRendered, forFolder, forTab, forToolName, type SlotRegistry } from "./slot-registry.js";
+import { forSession, forSessionRendered, forFolder, forTab, forToolName, forCommand, type SlotRegistry } from "./slot-registry.js";
 import { SlotErrorBoundary } from "./slot-error-boundary.js";
 import { IntentRenderer } from "./intent-renderer.js";
 import { useSlotIntents } from "./intent-store.js";
@@ -36,9 +36,9 @@ import type { FolderDescriptor } from "./slot-registry.js";
  * and parent wrappers hide cleanly.
  */
 export function useSlotHasClaimsForSession(slotId: SlotId, session: DashboardSession): boolean {
-  const registry = useSlotRegistryOrNull();
-  if (!registry) return false;
-  return forSessionRendered(registry.getClaims(slotId), session).length > 0;
+  const rawClaims = useSlotClaims(slotId);
+  if (!rawClaims) return false;
+  return forSessionRendered(rawClaims, session).length > 0;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -87,9 +87,9 @@ function renderIntent(
 // ── Slot consumers ────────────────────────────────────────────────────────────
 
 export function SidebarFolderSectionSlot({ folder }: { folder: FolderDescriptor }) {
-  const registry = useSlotRegistryOrNull();
-  if (!registry) return null;
-  const claims = forFolder(registry.getClaims("sidebar-folder-section"), folder);
+  const rawClaims = useSlotClaims("sidebar-folder-section");
+  if (!rawClaims) return null;
+  const claims = forFolder(rawClaims, folder);
   if (!claims.length) return null;
   return (
     <>
@@ -101,10 +101,10 @@ export function SidebarFolderSectionSlot({ folder }: { folder: FolderDescriptor 
 }
 
 export function SessionCardBadgeSlot({ session }: { session: DashboardSession }) {
-  const registry = useSlotRegistryOrNull();
+  const rawClaims = useSlotClaims("session-card-badge");
   const intents = useSlotIntents("session-card-badge", session.id);
-  const legacyClaims = registry
-    ? forSessionRendered(registry.getClaims("session-card-badge"), session)
+  const legacyClaims = rawClaims
+    ? forSessionRendered(rawClaims, session)
     : [];
   if (!legacyClaims.length && intents.size === 0) return null;
   return (
@@ -120,10 +120,10 @@ export function SessionCardBadgeSlot({ session }: { session: DashboardSession })
 }
 
 export function SessionCardActionBarSlot({ session }: { session: DashboardSession }) {
-  const registry = useSlotRegistryOrNull();
+  const rawClaims = useSlotClaims("session-card-action-bar");
   const intents = useSlotIntents("session-card-action-bar", session.id);
-  const legacyClaims = registry
-    ? forSessionRendered(registry.getClaims("session-card-action-bar"), session)
+  const legacyClaims = rawClaims
+    ? forSessionRendered(rawClaims, session)
     : [];
   if (!legacyClaims.length && intents.size === 0) return null;
   return (
@@ -139,10 +139,10 @@ export function SessionCardActionBarSlot({ session }: { session: DashboardSessio
 }
 
 export function SessionCardMemorySlot({ session }: { session: DashboardSession }) {
-  const registry = useSlotRegistryOrNull();
+  const rawClaims = useSlotClaims("session-card-memory");
   const intents = useSlotIntents("session-card-memory", session.id);
-  const legacyClaims = registry
-    ? forSessionRendered(registry.getClaims("session-card-memory"), session)
+  const legacyClaims = rawClaims
+    ? forSessionRendered(rawClaims, session)
     : [];
   if (!legacyClaims.length && intents.size === 0) return null;
   return (
@@ -158,10 +158,10 @@ export function SessionCardMemorySlot({ session }: { session: DashboardSession }
 }
 
 export function SessionCardFlowsSlot({ session }: { session: DashboardSession }) {
-  const registry = useSlotRegistryOrNull();
+  const rawClaims = useSlotClaims("session-card-flows");
   const intents = useSlotIntents("session-card-flows", session.id);
-  const legacyClaims = registry
-    ? forSessionRendered(registry.getClaims("session-card-flows"), session)
+  const legacyClaims = rawClaims
+    ? forSessionRendered(rawClaims, session)
     : [];
   if (!legacyClaims.length && intents.size === 0) return null;
   return (
@@ -177,10 +177,10 @@ export function SessionCardFlowsSlot({ session }: { session: DashboardSession })
 }
 
 export function WorkspaceActionBarSlot({ session }: { session: DashboardSession }) {
-  const registry = useSlotRegistryOrNull();
+  const rawClaims = useSlotClaims("workspace-action-bar");
   const intents = useSlotIntents("workspace-action-bar", session.id);
-  const legacyClaims = registry
-    ? forSessionRendered(registry.getClaims("workspace-action-bar"), session)
+  const legacyClaims = rawClaims
+    ? forSessionRendered(rawClaims, session)
     : [];
   if (!legacyClaims.length && intents.size === 0) return null;
   return (
@@ -204,8 +204,8 @@ export function ContentViewSlot({
   routeParams: Record<string, string>;
   onClose: () => void;
 }) {
-  const registry = useSlotRegistryOrNull();
-  if (!registry) return null;
+  const rawClaims = useSlotClaims("content-view");
+  if (!rawClaims) return null;
   // Multiple plugins may claim `content-view` (multiplicity:
   // "one-active"). Each claim's optional `predicate` decides whether
   // it wants to render right now; predicates close over the plugin's
@@ -215,9 +215,7 @@ export function ContentViewSlot({
   // default chat view. See change: pluginize-flows-via-registry
   // (design.md Decision 3 RECONSIDERED).
   const intents = useSlotIntents("content-view", session.id);
-  const legacyClaims = registry
-    ? forSession(registry.getClaims("content-view"), session)
-    : [];
+  const legacyClaims = forSession(rawClaims, session);
   // one-active: intents take precedence over legacy when both present.
   if (intents.size > 0) {
     const [pluginId, intent] = Array.from(intents.entries())[0];
@@ -233,10 +231,10 @@ export function ContentViewSlot({
 }
 
 export function ContentHeaderStickySlot({ session }: { session: DashboardSession }) {
-  const registry = useSlotRegistryOrNull();
+  const rawClaims = useSlotClaims("content-header-sticky");
   const intents = useSlotIntents("content-header-sticky", session.id);
-  const legacyClaims = registry
-    ? forSessionRendered(registry.getClaims("content-header-sticky"), session)
+  const legacyClaims = rawClaims
+    ? forSessionRendered(rawClaims, session)
     : [];
   if (!legacyClaims.length && intents.size === 0) return null;
   return (
@@ -252,10 +250,10 @@ export function ContentHeaderStickySlot({ session }: { session: DashboardSession
 }
 
 export function ContentInlineFooterSlot({ session }: { session: DashboardSession }) {
-  const registry = useSlotRegistryOrNull();
+  const rawClaims = useSlotClaims("content-inline-footer");
   const intents = useSlotIntents("content-inline-footer", session.id);
-  const legacyClaims = registry
-    ? forSessionRendered(registry.getClaims("content-inline-footer"), session)
+  const legacyClaims = rawClaims
+    ? forSessionRendered(rawClaims, session)
     : [];
   if (!legacyClaims.length && intents.size === 0) return null;
   return (
@@ -277,10 +275,8 @@ export function AnchoredPopoverSlot({
   anchorEl: HTMLElement;
   onDismiss: () => void;
 }) {
-  const registry = useSlotRegistryOrNull();
-  if (!registry) return null;
-  const claims = registry.getClaims("anchored-popover");
-  if (!claims.length) return null;
+  const claims = useSlotClaims("anchored-popover");
+  if (!claims || !claims.length) return null;
   // one-at-a-time: render the first claim only
   const claim = claims[0];
   return renderClaim(claim as Parameters<typeof renderClaim>[0], "anchored-popover", {
@@ -300,10 +296,9 @@ export function CommandRouteSlot({
   routeParams: Record<string, string>;
   onClose: () => void;
 }) {
-  const registry = useSlotRegistryOrNull();
-  if (!registry) return null;
-  const allClaims = registry.getClaims("command-route");
-  const claims = allClaims.filter(c => c.command === command);
+  const rawClaims = useSlotClaims("command-route");
+  if (!rawClaims) return null;
+  const claims = forCommand(rawClaims, command);
   if (!claims.length) return null;
   const claim = claims[0];
   return renderClaim(claim as Parameters<typeof renderClaim>[0], "command-route", {
@@ -314,13 +309,13 @@ export function CommandRouteSlot({
 }
 
 export function SettingsSectionSlot({ tab = "general" }: { tab?: string }) {
-  const registry = useSlotRegistryOrNull();
+  const rawClaims = useSlotClaims("settings-section");
   // settings-section is global (sessionId=null). Per-tab filtering on
   // intents is the plugin's responsibility (it can choose not to emit
   // for a non-matching tab); for legacy refs claims we still use forTab.
   const intents = useSlotIntents("settings-section", null);
-  const legacyClaims = registry
-    ? forTab(registry.getClaims("settings-section"), tab)
+  const legacyClaims = rawClaims
+    ? forTab(rawClaims, tab)
     : [];
   if (!legacyClaims.length && intents.size === 0) return null;
   return (
@@ -341,18 +336,18 @@ export function SettingsSectionSlot({ tab = "general" }: { tab?: string }) {
  * to render a plugin's settings inline beneath its activation row.
  *
  * Sorted by registry order (descending priority, ties broken by registration
- * order — the registry already pre-sorts).
+ * order - the registry already pre-sorts).
  *
  * See change: add-plugin-activation-ui.
  */
 export function SettingsSectionByPluginSlot({ pluginId }: { pluginId: string }) {
-  const registry = useSlotRegistryOrNull();
+  const rawClaims = useSlotClaims("settings-section");
   // Note: we deliberately do NOT use the intent store here. Activation-tab
   // rendering only consumes the claim form. If a plugin author later adds
   // intent-driven settings sections, they will still surface through the
   // legacy <SettingsSectionSlot tab="..."> consumers in SettingsPanel.
-  const claims = registry
-    ? registry.getClaims("settings-section").filter((c) => c.pluginId === pluginId)
+  const claims = rawClaims
+    ? rawClaims.filter((c) => c.pluginId === pluginId)
     : [];
   if (!claims.length) return null;
   return (
@@ -379,9 +374,9 @@ export function ToolRendererSlot({
     sessionId: string;
   }>;
 }) {
-  const registry = useSlotRegistryOrNull();
-  if (!registry) return null;
-  const claims = forToolName(registry.getClaims("tool-renderer"), toolName);
+  const rawClaims = useSlotClaims("tool-renderer");
+  if (!rawClaims) return null;
+  const claims = forToolName(rawClaims, toolName);
   if (!claims.length) {
     return FallbackComponent ? (
       <FallbackComponent toolName={toolName} toolInput={toolInput} sessionId={sessionId} />
@@ -397,7 +392,7 @@ export function ToolRendererSlot({
 
 // ── shell-overlay-route ───────────────────────────────────────────────────────
 //
-// Plugin-owned full-screen URL routes mounted at the top of the shell’s
+// Plugin-owned full-screen URL routes mounted at the top of the shell's
 // dispatch chain (desktop + mobile). Each claim ships a wouter path via
 // `config.path` and a React component. The first matching claim wins.
 //
@@ -439,13 +434,26 @@ export function ShellOverlayRouteSlot({
   registry: registryProp,
 }: {
   onBack: () => void;
-  /** Optional registry override. Same fallback rules as `useShellOverlayRouteMatched`: when omitted, falls back to `useSlotRegistryOrNull()`. */
+  /** Optional registry override. Same fallback rules as `useShellOverlayRouteMatched`: when omitted, falls back to `useSlotClaims()`. */
   registry?: SlotRegistry | null;
 }) {
-  const ctxRegistry = useSlotRegistryOrNull();
-  const effective = registryProp ?? ctxRegistry;
-  const claims = (effective?.getClaims("shell-overlay-route") ?? []) as ShellOverlayRouteClaim[];
-  // Each ShellOverlayRouteProbe is a separate component — one useRoute call
+  const ctxClaims = useSlotClaims("shell-overlay-route");
+  let claims: ClaimEntry[];
+  if (registryProp) {
+    // Registry override (for use outside Provider): subscribe reactively
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    claims = useSyncExternalStore(
+      (cb) => registryProp.subscribe(cb),
+      () => registryProp.getClaims("shell-overlay-route"),
+      () => registryProp.getClaims("shell-overlay-route"),
+    );
+  } else if (ctxClaims) {
+    claims = ctxClaims;
+  } else {
+    claims = [];
+  }
+  claims = claims as ShellOverlayRouteClaim[];
+  // Each ShellOverlayRouteProbe is a separate component - one useRoute call
   // per claim. The first probe whose route matches reports up via
   // `onMatched`. We render at most one match (first-wins).
   return (
@@ -455,17 +463,14 @@ export function ShellOverlayRouteSlot({
 
 /**
  * Companion hook: returns `true` when any registered `shell-overlay-route`
- * claim’s path matches the current URL. Replaces hand-wired `||`-chains
+ * claim's path matches the current URL. Replaces hand-wired `||`-chains
  * of `useRoute` flags in the shell.
- */
-/**
- * Synchronous match against `shell-overlay-route` claims.
  *
  * **Important**: this hook is callable from inside `App.tsx` BEFORE the
  * `<PluginContextProvider>` is mounted (App is the parent of the provider).
  * It therefore accepts the registry as an optional argument; when not
- * provided it falls back to `useSlotRegistryOrNull()` (works only when
- * called from inside the provider).
+ * provided it falls back to `useSlotClaims()` (works only when called
+ * from inside the provider).
  *
  * The shell typically passes `_pluginRegistry` (the module-level
  * SlotRegistry created in `App.tsx`) so the hook resolves even when
@@ -474,9 +479,21 @@ export function ShellOverlayRouteSlot({
  * See change: fix-flows-plugin-polish (hook-outside-provider fix).
  */
 export function useShellOverlayRouteMatched(registry?: SlotRegistry | null): boolean {
-  const ctxRegistry = useSlotRegistryOrNull();
-  const effective = registry ?? ctxRegistry;
-  const claims = (effective?.getClaims("shell-overlay-route") ?? []) as ShellOverlayRouteClaim[];
+  const ctxClaims = useSlotClaims("shell-overlay-route");
+  let claims: ClaimEntry[];
+  if (registry) {
+    // Registry override (for use outside Provider): subscribe reactively
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    claims = useSyncExternalStore(
+      (cb) => registry.subscribe(cb),
+      () => registry.getClaims("shell-overlay-route"),
+      () => registry.getClaims("shell-overlay-route"),
+    );
+  } else if (ctxClaims) {
+    claims = ctxClaims;
+  } else {
+    claims = [];
+  }
   const [location] = useLocation();
   let matched = false;
   for (const c of claims) {
@@ -628,7 +645,7 @@ function ShellOverlayRouteProbe({
   onMatch: (index: number, params: Record<string, string>) => void;
   onUnmatch: (index: number) => void;
 }) {
-  // useRoute is called exactly once per probe component instance — hook
+  // useRoute is called exactly once per probe component instance - hook
   // order is stable per probe across renders.
   const [matched, params] = useRoute(path ?? "/__shell_overlay_no_match__");
   React.useEffect(() => {

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   createSlotRegistry,
   forSession,
@@ -203,5 +203,104 @@ describe("forCommand filter", () => {
     ];
     expect(forCommand(claims, "/specs")).toHaveLength(1);
     expect(forCommand(claims, "/specs")[0].pluginId).toBe("a");
+  });
+});
+
+// ── subscribe ────────────────────────────────────────────────────────────────
+
+describe("subscribe", () => {
+  it("fires on addClaim", () => {
+    const r = createSlotRegistry();
+    const fn = vi.fn();
+    r.subscribe(fn);
+    r.addClaim(makeClaim("a", 100));
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it("fires on removeClaim only when claim was actually removed", () => {
+    const r = createSlotRegistry();
+    const claim = makeClaim("a", 100);
+    r.addClaim(claim);
+    const fn = vi.fn();
+    r.subscribe(fn);
+    r.removeClaim(claim);
+    expect(fn).toHaveBeenCalledTimes(1);
+
+    // Removing again is a no-op — should NOT fire
+    r.removeClaim(claim);
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it("fires on removeClaims when claims were removed", () => {
+    const r = createSlotRegistry();
+    r.addClaim(makeClaim("alpha", 100));
+    r.addClaim(makeClaim("beta", 100));
+    const fn = vi.fn();
+    r.subscribe(fn);
+    r.removeClaims("alpha");
+    expect(fn).toHaveBeenCalledTimes(1);
+
+    // Removing a non-existent plugin id is a no-op
+    r.removeClaims("gamma");
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it("fires on setEnabledSet", () => {
+    const r = createSlotRegistry();
+    const fn = vi.fn();
+    r.subscribe(fn);
+    r.setEnabledSet(new Set(["a", "b"]));
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it("unsubscribe stops firing", () => {
+    const r = createSlotRegistry();
+    const fn = vi.fn();
+    const unsub = r.subscribe(fn);
+    r.addClaim(makeClaim("a", 100));
+    expect(fn).toHaveBeenCalledTimes(1);
+    unsub();
+    r.addClaim(makeClaim("b", 100));
+    expect(fn).toHaveBeenCalledTimes(1); // no additional calls
+  });
+
+  it("getClaims returns stable reference across reads (no mutation)", () => {
+    const r = createSlotRegistry();
+    r.addClaim(makeClaim("a", 100));
+    const first = r.getClaims("session-card-badge");
+    const second = r.getClaims("session-card-badge");
+    expect(first).toBe(second); // same reference (cached)
+  });
+
+  it("getClaims returns new reference after mutation", () => {
+    const r = createSlotRegistry();
+    r.addClaim(makeClaim("a", 100));
+    const first = r.getClaims("session-card-badge");
+    r.addClaim(makeClaim("b", 200));
+    const second = r.getClaims("session-card-badge");
+    expect(first).not.toBe(second); // cache invalidated
+  });
+
+  it("removeClaim removes claim and invalidates cache", () => {
+    const r = createSlotRegistry();
+    const claim = makeClaim("a", 100);
+    r.addClaim(claim);
+    expect(r.getClaims("session-card-badge")).toHaveLength(1);
+    r.removeClaim(claim);
+    expect(r.getClaims("session-card-badge")).toHaveLength(0);
+  });
+
+  it("subscriber fires and cache invalidated on removeClaim", () => {
+    const r = createSlotRegistry();
+    const claim = makeClaim("a", 100);
+    r.addClaim(claim);
+    const before = r.getClaims("session-card-badge");
+    const fn = vi.fn();
+    r.subscribe(fn);
+    r.removeClaim(claim);
+    expect(fn).toHaveBeenCalledTimes(1);
+    const after = r.getClaims("session-card-badge");
+    expect(after).toHaveLength(0);
+    expect(after).not.toBe(before); // cache invalidated
   });
 });
