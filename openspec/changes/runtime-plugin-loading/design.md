@@ -10,6 +10,8 @@ Client loading is unchanged — the Vite plugin generates static imports at buil
 
 piclaw demonstrated a clean `AddonWebApiSurface` pattern: plugins call global registration functions that return unregister functions. The dashboard needs both: MF for singleton sharing, a typed API for ergonomics.
 
+Pre-existing work on `fix/tool-renderer-header-chips` provides the **tool-renderer enrichment mechanism**: `registerToolRenderer(toolName, renderer, { headerChips?, summary? })` lets plugins replace or wrap built-in tool cards. The `event-reducer` already handles `event_forward` for plugin-specific tool-row patching. MF plugins use these same APIs through `api.registerClaim({ slot: 'tool-renderer', ... })`, which delegates to `registerToolRenderer` internally.
+
 ## Goals / Non-Goals
 
 **Goals**: Install dashboard plugin via Plugins UI (server fetches from npm, extracts to `~/.pi/dashboard/plugins/<id>/`), see components render without rebuild. Plugins built independently (own Rspack config). `DashboardPluginApi` provides minimal surface. Workspace plugins unchanged. New plugins appear within ~2s of `plugins_changed`.
@@ -36,7 +38,11 @@ export function init(api: DashboardPluginApi): () => void {
 }
 ```
 
-### Decision 3: `DashboardPluginApi` on `window.__piDashboard`
+### Decision 3: `registerClaim` delegates to existing enrichment APIs for tool-renderer slot
+
+When `api.registerClaim({ slot: 'tool-renderer', toolName: 'bash', component: Renderer })` is called, the implementation SHALL internally call `registerToolRenderer(toolName, Renderer)` (from `fix/tool-renderer-header-chips`). The `headerChips` and `summary` options are passed through as additional claim fields. The `event-reducer`'s `event_forward` → `args._pluginData` pipeline continues to work — MF plugins receive tool-row enrichment via `api.onEvent()`. No new protocol needed.
+
+### Decision 4: `DashboardPluginApi` on `window.__piDashboard`
 
 Proxy-initialized in `<script>` before any remote loads. Queues calls until React mounts, then replays. Final API provides:
 
@@ -51,11 +57,11 @@ Proxy-initialized in `<script>` before any remote loads. Queues calls until Reac
 | `getConfig<T>()` / `setConfig(partial)` | `T` / `Promise<void>` |
 | `pluginId` (readonly) | `string` |
 
-### Decision 4: Plugin installation via server (separate from pi install)
+### Decision 5: Plugin installation via server (separate from pi install)
 
 Dashboard plugins are NOT installed via `pi install`. The server SHALL provide `POST /api/plugins/install { source: "npm:<pkg>" }` to fetch the npm tarball and extract it to `~/.pi/dashboard/plugins/<id>/`. `<PluginsSection>` SHALL expose search + install UI. After extraction, `discoverPlugins()` rescans and broadcasts `plugins_changed`. This is separate from pi extension installation (`pi install`).
 
-### Decision 5: Three discovery sources, `dashboard-installed` is third
+### Decision 6: Three discovery sources, `dashboard-installed` is third
 
 `discoverPlugins()` SHALL scan three sources in order:
 1. Workspace: `<dashboard-cwd>/packages/*/package.json` (`source: "workspace"`)
@@ -64,27 +70,27 @@ Dashboard plugins are NOT installed via `pi install`. The server SHALL provide `
 
 Earlier sources shadow later ones. The `external-dashboard-plugins` change's `PluginStatus.source` enum gains `"dashboard-installed"`.
 
-### Decision 6: Manifest lives in extracted plugin directory
+### Decision 7: Manifest lives in extracted plugin directory
 
 The dashboard plugin package contains a `dashboard-plugin.json` at its root (or `pi-dashboard-plugin` in `package.json`). When extracted to `~/.pi/dashboard/plugins/<id>/`, the manifest is at `~/.pi/dashboard/plugins/<id>/dashboard-plugin.json`. `mfRemote` is a path relative to the manifest (`./dist/remoteEntry.js`). The server resolves it to URL `/plugins/<id>/dist/remoteEntry.js`.
 
-### Decision 7: Server serves pre-built bundles from plugin root
+### Decision 8: Server serves pre-built bundles from plugin root
 
 Route `GET /plugins/:id/*` serves `<path>` relative to `~/.pi/dashboard/plugins/<id>/`. Plugin authors build before publishing (output goes to `dist/`). Server does NOT build plugins. `vite-plugin` detects `mfRemote` and excludes from static registry. Dev override via `PI_DASHBOARD_PLUGIN_DEV={"id":"http://localhost:3456"}` proxies to plugin dev server.
 
-### Decision 8: Server entries for external plugins loaded dynamically
+### Decision 9: Server entries for external plugins loaded dynamically
 
 `loadServerEntries()` SHALL also scan `~/.pi/dashboard/plugins/<id>/` for manifests with a `server` entry. It SHALL dynamic-import the server module from the extracted plugin directory. Failure-isolated: a broken server entry from a dashboard-installed plugin SHALL NOT crash the server or prevent other plugins from loading.
 
-### Decision 9: pi-dev-worktrees as two packages, different install paths
+### Decision 10: pi-dev-worktrees as two packages, different install paths
 
 Pi extension (`@lanquarden/pi-dev-worktrees`) via `pi install`. Dashboard plugin (`@lanquarden/pi-dev-worktrees-dashboard-plugin`) via dashboard Plugins UI (`POST /api/plugins/install`). The dashboard plugin is a standalone MF remote with no pi extension code.
 
-### Decision 10: Workspace plugin migration
+### Decision 11: Workspace plugin migration
 
 Workspace plugins unchanged. To migrate: extract to own repo, add `dashboard/rspack.config.ts` (MF remote), add `mfRemote` to manifest. Vite plugin skips manifests with `mfRemote`. `dashboard-plugin-skill` extended with `mf-remote` mode.
 
-### Decision 11: Lifecycle cleanup
+### Decision 12: Lifecycle cleanup
 
 On unload: call `init()` cleanup, all `registerClaim()` unregisters, all `onEvent()`/`subscribeSession()` unsubscribes, remove claims from registry. Tracked per pluginId in `Map<string, Array<() => void>>`.
 

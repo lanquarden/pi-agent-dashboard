@@ -33,9 +33,18 @@ The `DashboardPluginApi` interface SHALL be defined in `packages/shared/src/dash
 - **WHEN** plugin calls `registerClaim({ slot: 'bogus', component: X })`
 - **THEN** call SHALL throw `TypeError` listing valid slots.
 
+### Requirement: `registerClaim` delegates to existing APIs for tool-renderer slot
+
+When `registerClaim` receives a `slot: 'tool-renderer'` claim with `toolName` and `component`, the implementation SHALL internally call `registerToolRenderer(toolName, component)` (existing API from `fix/tool-renderer-header-chips`). Optional `headerChips` and `summary` functions in the claim SHALL be passed as the `opts` parameter. On cleanup (unregister), the renderer SHALL be removed from the registry and the original built-in renderer restored.
+
+#### Scenario: Tool renderer registered via claim
+
+- **WHEN** plugin calls `api.registerClaim({ slot: 'tool-renderer', toolName: 'bash', component: EnhancedBash, headerChips: myChips })`
+- **THEN** `getToolRenderer('bash')` SHALL return `EnhancedBash` and `getToolHeaderChips('bash')` SHALL return `myChips`.
+
 ### Requirement: `createDashboardPluginApi` factory
 
-A factory function `createDashboardPluginApi(deps, pluginId)` SHALL be implemented in `packages/client/src/lib/plugin-api.ts`. It SHALL scope all registrations per `pluginId` and SHALL track them for cleanup on unload.
+A factory function `createDashboardPluginApi(deps, pluginId)` SHALL be implemented in `packages/client/src/lib/plugin-api.ts`. It SHALL scope all registrations per `pluginId` and SHALL track them for cleanup on unload. It SHALL include the `registerToolRenderer` delegation described above.
 
 #### Scenario: All registrations cleaned up
 
