@@ -1,7 +1,7 @@
 import React, { useState, type ReactNode } from "react";
 import { Icon } from "@mdi/react";
 import { mdiLoading, mdiCheck, mdiAlertCircle, mdiChevronRight, mdiChevronDown, mdiStop, mdiAlert, mdiHelpCircleOutline } from "@mdi/js";
-import { getToolRenderer, type ToolContext } from "./tool-renderers/index.js";
+import { getToolRenderer, getToolHeaderChips, getToolSummary, type ToolContext } from "./tool-renderers/index.js";
 import type { ChatImage } from "../lib/event-reducer.js";
 import { useMobile } from "../hooks/useMobile.js";
 import { ElapsedBadge } from "./ElapsedBadge.js";
@@ -39,6 +39,8 @@ const toolSummaries: Record<string, (args?: Record<string, unknown>) => string> 
 };
 
 function getSummary(toolName: string, args?: Record<string, unknown>): string {
+  const pluginFn = getToolSummary(toolName);
+  if (pluginFn) return pluginFn(args);
   const fn = toolSummaries[toolName];
   if (fn) return fn(args);
   return toolName;
@@ -86,6 +88,7 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
             : statusIcons[status]}
         </span>
         <span className="truncate">{getSummary(toolName, args)}</span>
+        {getToolHeaderChips(toolName)?.(args)}
         <ElapsedBadge startedAt={startedAt} duration={duration} />
         {status === "running" && onAbort && stopState === "idle" && (
           <span

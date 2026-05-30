@@ -47,6 +47,8 @@ interface PluginEntry {
    * generator emits a relative path. See change: fix-windows-standalone-spawn.
    */
   packageImportSpecifier?: string;
+  /** Tool renderer registrations declared in the plugin manifest. */
+  toolRenderers?: Array<{ toolName: string; component: string }>;
 }
 
 /**
@@ -102,12 +104,26 @@ function loadPluginEntries(repoRoot: string, isProd: boolean): PluginEntry[] {
       if (isProd && p.manifest.fixture === true) return false;
       return Boolean(p.clientEntryPath);
     })
-    .map(p => ({
-      manifest: p.manifest,
-      packageDir: p.packageDir,
-      clientEntryPath: p.clientEntryPath,
-      packageImportSpecifier: resolvePackageImportSpecifier(p.packageDir, p.manifest.client),
-    }));
+    .map(p => {
+      let toolRenderers: Array<{ toolName: string; component: string }> = [];
+      try {
+        const pkgPath = path.join(p.packageDir, "package.json");
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+        const rawManifest = pkg["pi-dashboard-plugin"];
+        if (rawManifest?.toolRenderers && Array.isArray(rawManifest.toolRenderers)) {
+          toolRenderers = rawManifest.toolRenderers.filter(
+            (tr: any) => typeof tr.toolName === "string" && typeof tr.component === "string",
+          );
+        }
+      } catch { /* ignore */ }
+      return {
+        manifest: p.manifest,
+        packageDir: p.packageDir,
+        clientEntryPath: p.clientEntryPath,
+        packageImportSpecifier: resolvePackageImportSpecifier(p.packageDir, p.manifest.client),
+        toolRenderers,
+      };
+    });
 }
 
 /**
@@ -215,11 +231,12 @@ function generateRegistryContent(entries: PluginEntry[], repoRoot: string): stri
       importPath = (rel.startsWith(".") ? rel : `./${rel}`).replace(/\.(tsx?|jsx?)$/, "");
     }
     const namedRefs = [
-      ...new Set(
-        entry.manifest.claims
+      ...new Set([
+        ...entry.manifest.claims
           .flatMap(c => [c.component, c.predicate, c.shouldRender])
           .filter((c): c is string => Boolean(c)),
-      ),
+        ...(entry.toolRenderers ?? []).map(tr => tr.component),
+      ]),
     ];
 
     if (namedRefs.length === 0) continue;
@@ -249,6 +266,12 @@ function generateRegistryContent(entries: PluginEntry[], repoRoot: string): stri
     lines.push(
       `import { ${namedRefs.join(", ")} } from ${JSON.stringify(importPath)};`,
     );
+  }
+
+  // Emit registerToolRenderer import if any plugin declares toolRenderers
+  const hasToolRenderers = entries.some(e => (e.toolRenderers ?? []).length > 0);
+  if (hasToolRenderers) {
+    lines.push("import { registerToolRenderer } from \"../components/tool-renderers/registry.js\";");
   }
 
   lines.push("");
@@ -290,6 +313,19 @@ function generateRegistryContent(entries: PluginEntry[], repoRoot: string): stri
 
   lines.push("];");
   lines.push("");
+
+  // Emit registerToolRenderer calls for plugins declaring toolRenderers
+  if (hasToolRenderers) {
+    lines.push("// -- Plugin tool-renderer registrations --------------------------------");
+    for (const entry of entries) {
+      for (const tr of entry.toolRenderers ?? []) {
+        const optsParts: string[] = [];
+        lines.push(`registerToolRenderer(${JSON.stringify(tr.toolName)}, ${tr.component});`);
+      }
+    }
+    lines.push("");
+  }
+
   // Build-time hash of the registry. The client compares this against the
   // server's live `/api/health.bundleHash` to detect a stale plugin bundle.
   // See change: fix-pi-flows-end-to-end (Group 6).

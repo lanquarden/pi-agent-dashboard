@@ -175,6 +175,13 @@ export interface SessionState {
    * See change: fix-streaming-text-vs-interactive-ui-order.
    */
   streamingTextFlushed?: boolean;
+  /**
+   * Buffered plugin enrichments that arrived before their target tool row
+   * existed (event_forward with toolCallId arrives during tool_call, before
+   * tool_execution_start creates the row). Applied when the row appears.
+   * Key: toolCallId, Value: Map<eventType, enrichment data>.
+   */
+  pendingEnrichments: Map<string, Map<string, unknown>>;
 }
 
 /**
@@ -221,6 +228,7 @@ export function createInitialState(): SessionState {
     hasFileChanges: false,
     subagents: new Map(),
     turnCount: 0,
+    pendingEnrichments: new Map(),
   };
 }
 
@@ -1111,7 +1119,19 @@ export function reduceEvent(state: SessionState, event: DashboardEvent): Session
           flushStreamingTextAsAssistantRow(next, event.timestamp, toolCallId),
         );
       }
-      const args = data.args as Record<string, unknown> | undefined;
+      const rawArgs = data.args as Record<string, unknown> | undefined;
+      // Apply any buffered plugin enrichments that arrived before this row.
+      let args = rawArgs;
+      if (next.pendingEnrichments.has(toolCallId)) {
+        const pending = next.pendingEnrichments.get(toolCallId)!;
+        const pluginData: Record<string, unknown> = {};
+        for (const [eventType, enrichment] of pending) {
+          pluginData[eventType] = enrichment;
+        }
+        args = { ...rawArgs, _pluginData: pluginData };
+        next.pendingEnrichments = new Map(next.pendingEnrichments);
+        next.pendingEnrichments.delete(toolCallId);
+      }
       next.toolCalls.set(toolCallId, {
         toolCallId,
         toolName,
@@ -1527,6 +1547,45 @@ export function reduceEvent(state: SessionState, event: DashboardEvent): Session
     }
 
     default: {
+      // ── Generic tool-row enrichment via event_forward ──────────────────
+      // Any event_forward whose data contains a `toolCallId` string is
+      // treated as a plugin enrichment targeting that tool row. The payload
+      // is stored under `args._pluginData[eventType]` so multiple plugins
+      // can annotate the same tool row independently. Plugin tool renderers
+      // read their data via `args._pluginData?.['my-event-type']`.
+      if (data && typeof (data as any).toolCallId === "string") {
+        const { toolCallId: rawTcId, ...enrichment } = data as Record<string, unknown>;
+        const toolCallId = rawTcId as string;
+        const idx = next.messages.findLastIndex(
+          (m) => m.role === "toolResult" && m.toolCallId === toolCallId,
+        );
+        if (idx >= 0) {
+          next.messages = [...next.messages];
+          const prev = next.messages[idx];
+          const prevPluginData = ((prev.args as any)?._pluginData ?? {}) as Record<string, unknown>;
+          next.messages[idx] = {
+            ...prev,
+            args: {
+              ...prev.args,
+              _pluginData: { ...prevPluginData, [event.eventType]: enrichment },
+            },
+          };
+        } else {
+          // Tool row doesn't exist yet (event_forward arrived before
+          // tool_execution_start). Buffer and apply when the row appears.
+          next.pendingEnrichments = new Map(next.pendingEnrichments);
+          if (!next.pendingEnrichments.has(toolCallId)) {
+            if (next.pendingEnrichments.size >= 20) {
+              const oldest = next.pendingEnrichments.keys().next().value;
+              if (oldest !== undefined) next.pendingEnrichments.delete(oldest);
+            }
+            next.pendingEnrichments.set(toolCallId, new Map());
+          }
+          next.pendingEnrichments.get(toolCallId)!.set(event.eventType, enrichment);
+        }
+        break;
+      }
+
       // Flow / architect events flow through the plugin's own reducer
       // via useSessionEvents in flows-plugin. The shell ignores them
       // here; the plugin runtime mirrors msg.event into the per-session
