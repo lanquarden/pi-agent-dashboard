@@ -16,7 +16,7 @@
   ],
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/vite-build.mjs build && node scripts/precompress.mjs",
+    "build": "rspack build && node scripts/precompress.mjs",
     "prepare": "node scripts/vite-build.mjs build && node scripts/precompress.mjs"
   },
   "dependencies": {
@@ -56,7 +56,12 @@
     "wouter": "^3.9.0"
   },
   "devDependencies": {
+    "@rspack/cli": "^1.7.0",
+    "@rspack/core": "^1.7.0",
+    "@tailwindcss/postcss": "^4.3.0",
     "@tailwindcss/vite": "^4.1.0",
+    "postcss": "^8.5.0",
+    "postcss-loader": "^8.2.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
     "@types/dompurify": "^3.0.5",

@@ -85,8 +85,13 @@
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "^0.75.5",
+    "@rspack/cli": "^1.7.11",
+    "@rspack/core": "^1.7.11",
+    "@tailwindcss/postcss": "^4.3.0",
     "jsdom": "^29.0.2",
     "patch-package": "^8.0.1",
+    "postcss": "^8.5.15",
+    "postcss-loader": "^8.2.1",
     "tsx": "^4.21.0",
     "typescript": "^5.7.0",
     "vitest": "^4.0.0"

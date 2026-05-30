@@ -11,6 +11,7 @@ import os from "node:os";
 // the runtime ships raw .ts (no compiled dist) and Node can't resolve
 // `.js`-extensioned internal imports back to `.ts` at runtime.
 import { viteDashboardPluginsPlugin } from "../dashboard-plugin-runtime/src/vite-plugin/index.js";
+import { aliases as sharedAliases, extensions as sharedExtensions } from "./build-config.js";
 
 /**
  * Resolve the dashboard HTTP port for Vite proxy targets.
@@ -72,10 +73,7 @@ export default defineConfig({
   // holds icon-192.png, manifest.json, sw.js, etc.
   publicDir: "../../../public",
   resolve: {
-    alias: {
-      "@blackbelt-technology/pi-dashboard-shared": path.resolve(__dirname, "../shared/src"),
-      "@blackbelt-technology/pi-dashboard-client-utils": path.resolve(__dirname, "../client-utils/src"),
-    },
+    alias: sharedAliases,
   },
   build: {
     outDir: "../dist",
