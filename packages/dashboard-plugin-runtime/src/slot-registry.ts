@@ -93,6 +93,8 @@ export interface SlotRegistry {
   getAllClaims(): ClaimEntry[];
   /** Add a claim. Inserts in sorted order. */
   addClaim(claim: ClaimEntry): void;
+  /** Remove a specific claim. Idempotent — no-op if not present. */
+  removeClaim(claim: ClaimEntry): void;
   /** Remove all claims belonging to a plugin. */
   removeClaims(pluginId: string): void;
   /**
@@ -151,6 +153,13 @@ export function createSlotRegistry(): SlotRegistry {
       const bucket = getBucket(claim.slot);
       bucket.push(claim);
       bucket.sort(compareClaims);
+    },
+
+    removeClaim(claim: ClaimEntry): void {
+      const bucket = store.get(claim.slot);
+      if (!bucket) return;
+      const idx = bucket.indexOf(claim);
+      if (idx !== -1) bucket.splice(idx, 1);
     },
 
     removeClaims(pluginId: string): void {
