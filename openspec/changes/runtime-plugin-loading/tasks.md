@@ -23,7 +23,7 @@
 
 ## 4. Server bundle serving
 
-- [ ] 4.1 Create `packages/server/src/routes/plugin-bundle-routes.ts`: `GET /plugins/:id/*`, resolve via discovery cache, serve from `<dir>/dist/client/`, MIME types, `Cache-Control`.
+- [ ] 4.1 Create `packages/server/src/routes/plugin-bundle-routes.ts`: `GET /plugins/:id/*`, resolve `:id` to `~/.pi/dashboard/plugins/<id>/`, serve wildcard path relative to that directory, MIME types, `Cache-Control`.
 - [ ] 4.2 Gate through `localhostGuard`.
 - [ ] 4.3 Dev override: `PI_DASHBOARD_PLUGIN_DEV` env var proxies to plugin dev server; falls back to disk.
 - [ ] 4.4 Integration test: build fixture plugin, verify `GET /plugins/fixture/remoteEntry.js` returns 200.

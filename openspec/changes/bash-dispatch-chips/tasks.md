@@ -1,50 +1,50 @@
 ## 1. Plugin runtime: export registerToolRenderer
 
-Spec: `specs/02-plugin-runtime-export.md`
+Spec: `tool-renderer-registry`
 
-- [x] 2.1 Export `registerToolRenderer` from `packages/dashboard-plugin-runtime/src/index.ts`
-- [x] 2.2 Export type `ToolRendererProps` from barrel
-- [ ] 2.3 Add test: `registerToolRenderer` importable from barrel, registered renderer returned by `getToolRenderer`
+- [x] 1.1 Export `registerToolRenderer`, `getToolRenderer` from `packages/dashboard-plugin-runtime/src/index.ts`
+- [x] 1.2 Export types `ToolRendererProps`, `HeaderChipsFn`, `SummaryFn` from barrel
+- [ ] 1.3 Test: `registerToolRenderer` importable, registered renderer returned by `getToolRenderer`
 
 ## 2. Client event reducer: generic tool-row enrichment
 
-Spec: `specs/03-bash-dispatch-renderer.md`
+Spec: `tool-row-enrichment`
 
-- [x] 3.1 Generic `event_forward` handler: any payload with `toolCallId` patches `args._pluginData[eventType]` on matching tool row
-- [x] 3.2 Buffer in `pendingEnrichments` when tool row not yet created; flush on `tool_execution_start`
-- [ ] 3.3 Add reducer tests (see spec 03)
+- [x] 2.1 Generic `event_forward` handler: any payload with `toolCallId` patches `args._pluginData[eventType]` on matching tool row
+- [x] 2.2 `pendingEnrichments` buffer when tool row not yet created; flushed on `tool_execution_start`
+- [ ] 2.3 Reducer tests: `event_forward` patches correct row, buffer+flush works, cap at 20 evicts oldest
 
 ## 3. EnhancedBashToolRenderer (plugin repo)
 
-Spec: `specs/03-bash-dispatch-renderer.md` (plugin-specific rendering belongs in `pi-dev-worktrees` plugin repo)
+Spec: `bash-dispatch-plugin`
 
-- [x] 3.4 `EnhancedBashToolRenderer` created at `~/.pi/dashboard/plugins/pi-dev-worktrees/src/client/EnhancedBashToolRenderer.tsx`
-- [x] 3.5 Registered via `registerToolRenderer("bash", EnhancedBashToolRenderer)` in plugin client entry
-- [ ] 3.6 Tests for `EnhancedBashToolRenderer` (plugin repo, not this repo)
+- [ ] 3.1 `EnhancedBashToolRenderer` with routing/RTK chip rendering (in `pi-dev-worktrees-dashboard-plugin` repo)
+- [ ] 3.2 Registered via `api.registerClaim({ slot: 'tool-renderer', ... })` in MF `init(api)` function
+- [ ] 3.3 Tests for `EnhancedBashToolRenderer` (plugin repo)
 
-## 4. Companion repo (pi-dev-worktrees)
+## 4. Companion repo (pi-dev-worktrees extension)
 
-Spec: `specs/04-companion-pi-dev-worktrees.md`
+Spec: `bash-dispatch-plugin`
 
-- [x] 4.1 Implement `pi.events.emit("pi-dev-worktrees:bash-dispatch", payload)` in `tool_call` handler
+- [x] 4.1 `pi.events.emit("pi-dev-worktrees:bash-dispatch", payload)` in `tool_call` handler
 - [x] 4.2 Capture `llmCommand` in `tool_execution_start` handler
 - [ ] 4.3 Integration test: event arrives at dashboard as `event_forward` with correct payload
 
 ## 5. Tool renderer header chips (opts.headerChips)
 
-Spec: `specs/05-tool-renderer-header-chips.md`
+Spec: `tool-renderer-header-chips`
 
-- [x] 5.1 Extend `registerToolRenderer` with optional `opts.headerChips` parameter
-- [x] 5.2 Add `getToolHeaderChips(toolName)` to registry
+- [x] 5.1 Extend `registerToolRenderer` with optional `opts: { headerChips?, summary? }` parameter
+- [x] 5.2 Add `getToolHeaderChips(toolName)` and `getToolSummary(toolName)` to registry
 - [x] 5.3 `ToolCallStep.tsx` renders header chips via `getToolHeaderChips(toolName)?.(args)`
-- [x] 5.4 Export `getToolHeaderChips` + `HeaderChipsFn` type from barrel
-- [x] 5.5 Plugin registers `headerChips` function in `registerToolRenderer` call
+- [x] 5.4 Export `getToolHeaderChips`, `getToolSummary`, `HeaderChipsFn`, `SummaryFn` from barrel
+- [x] 5.5 `ToolCallStep.tsx` `getSummary()` prefers plugin summary override
 - [x] 5.6 Tests: registry stores and returns header chips function
 
-## 6. Bridge notify opts (reverted)
+## 6. Vite plugin: toolRenderers manifest support
 
-Spec: `specs/01-bridge-notify-opts.md`
+Spec: `tool-renderer-registry`
 
-- ~~6.1 `ctx.ui.notify` opts extension implemented (backward-compatible)~~ — reverted
-- ~~6.2 Tests passing~~ — reverted
-- Note: Implementation removed. Failed pathway. See spec 01 for rationale.
+- [x] 6.1 `PluginEntry` gains `toolRenderers?: Array<{ toolName: string; component: string }>`
+- [x] 6.2 `loadPluginEntries` parses `toolRenderers` from `pi-dashboard-plugin` in `package.json`
+- [x] 6.3 `generateRegistryContent` imports toolRenderer components and emits `registerToolRenderer()` calls
