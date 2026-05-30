@@ -72,6 +72,8 @@ import { registerEditorRoutes } from "./routes/editor-routes.js";
 import { registerKnownServersRoutes } from "./routes/known-servers-routes.js";
 import { registerPluginConfigRoutes } from "./routes/plugin-config-routes.js";
 import { registerPluginActivationRoutes } from "./routes/plugin-activation-routes.js";
+import { registerPluginBundleRoutes } from "./routes/plugin-bundle-routes.js";
+import { registerPluginInstallRoutes } from "./routes/plugin-install-routes.js";
 import { createModelProxyAuthGate } from "./model-proxy/auth-gate.js";
 import { registerModelProxyRoutes } from "./routes/model-proxy-routes.js";
 import { registerModelProxyApiKeyRoutes } from "./routes/model-proxy-api-key-routes.js";
@@ -806,6 +808,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   registerPluginActivationRoutes(fastify, {
     networkGuard,
     broadcast: (msg) => browserGateway.broadcast(msg),
+  });
+  registerPluginBundleRoutes(fastify, { networkGuard });
+  registerPluginInstallRoutes(fastify, {
+    networkGuard,
+    broadcast: (msg) => browserGateway.broadcast(msg),
+    repoRoot,
   });
   registerProviderRoutes(fastify, { networkGuard, piGateway, browserGateway, port: config.port });
 

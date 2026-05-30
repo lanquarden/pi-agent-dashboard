@@ -51,6 +51,15 @@ export interface PluginStatus {
   loaded: boolean;
   /** Error message if the plugin failed to load or has a conflict. */
   error?: string;
+  /** Discovery source: "workspace" | "global" | "dashboard-installed". */
+  source?: string;
+  /**
+   * Absolute URL to the MF remote entry (e.g. "/plugins/<id>/dist/remoteEntry.js").
+   * Set by the server when the manifest declares `mfRemote`. Omitted for
+   * build-time plugins that don't support runtime loading.
+   * See change: runtime-plugin-loading (Decision 7).
+   */
+  mfRemote?: string;
   /** Number of slot claims declared in the plugin's manifest. */
   claims: number;
   /**

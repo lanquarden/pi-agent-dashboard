@@ -79,10 +79,28 @@ export function registerPluginActivationRoutes(
         const m = p.manifest;
         const status = statusById.get(m.id);
         const dependents = Array.from(transitiveDependents(graph, m.id)).sort();
+
+        // Resolve mfRemote to a server-relative URL
+        const mfRemote = m.mfRemote
+          ? `/plugins/${m.id}/${m.mfRemote.replace(/^\.\//, "")}`
+          : undefined;
+
+        // Classify source based on which search dir the plugin came from
+        let source: string | undefined;
+        if (p.packageDir.includes("/packages/")) {
+          source = "workspace";
+        } else if (p.packageDir.includes(".pi/dashboard/plugins")) {
+          source = "dashboard-installed";
+        } else {
+          source = "global";
+        }
+
         return {
           id: m.id,
           displayName: m.displayName,
           priority: m.priority ?? 1000,
+          source,
+          mfRemote,
           hasServer: Boolean(p.serverEntryPath),
           hasBridge: Boolean(p.bridgeEntryPath),
           hasClient: Boolean(p.clientEntryPath),
