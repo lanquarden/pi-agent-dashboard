@@ -813,7 +813,6 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   registerPluginInstallRoutes(fastify, {
     networkGuard,
     broadcast: (msg) => browserGateway.broadcast(msg),
-    repoRoot,
   });
   registerProviderRoutes(fastify, { networkGuard, piGateway, browserGateway, port: config.port });
 

@@ -334,7 +334,10 @@ export default function App() {
   }, [send]);
 
   // Initial fetch of /api/plugins on mount to discover and load MF remotes.
+  // Depend on send so wirePluginLoader has run before handlePluginsChanged
+  // (avoids "Not wired yet" race when fetch completes before WS connects).
   useEffect(() => {
+    if (!send) return;
     const base = deriveApiBase(wsUrl) || VITE_API_URL;
     fetch(`${base}/api/plugins`)
       .then((r) => r.json())
@@ -343,14 +346,14 @@ export default function App() {
           const plugins = data.plugins.map((p: Record<string, unknown>) => ({
             id: p.id as string,
             enabled: (p.status as Record<string, unknown>)?.enabled !== false,
-            mfRemote: (p.status as Record<string, unknown>)?.mfRemote as string | undefined,
+            mfRemote: (p.mfRemote ?? (p.status as Record<string, unknown>)?.mfRemote) as string | undefined,
             error: (p.status as Record<string, unknown>)?.error as string | undefined,
           }));
           handlePluginsChanged(plugins);
         }
       })
       .catch((e) => console.warn("[plugin-loader] Failed to fetch /api/plugins:", e));
-  }, []);
+  }, [send]);
 
   // Listen for plugins_changed WS broadcasts via the plugin event bus.
   useEffect(() => {

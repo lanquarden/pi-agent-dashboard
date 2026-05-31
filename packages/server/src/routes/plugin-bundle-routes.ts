@@ -101,7 +101,7 @@ export function registerPluginBundleRoutes(
             const buf = await proxyRes.arrayBuffer();
             const ext = path.extname(wildcardPath).toLowerCase();
             const contentType = MIME_TYPES[ext] ?? "application/octet-stream";
-            void reply
+            return reply
               .header("Content-Type", contentType)
               // Dev responses are never cached
               .header("Cache-Control", "no-store")
@@ -162,11 +162,12 @@ export function registerPluginBundleRoutes(
         : "public, max-age=60";
 
       const stat = fs.statSync(filePath);
-      void reply
+      const content = fs.readFileSync(filePath);
+      return reply
         .header("Content-Type", contentType)
         .header("Cache-Control", cacheControl)
         .header("Content-Length", stat.size)
-        .send(fs.createReadStream(filePath));
+        .send(content);
     },
   );
 }
