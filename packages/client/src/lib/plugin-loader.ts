@@ -108,9 +108,11 @@ export async function handlePluginsChanged(plugins: RemotePluginInfo[]): Promise
  * Load a single remote plugin via Module Federation.
  * Steps:
  *  1. Preflight HEAD to mfRemote URL
- *  2. Dynamic import() the remote entry
- *  3. Call remote.init(api)
- *  4. Track cleanup functions
+ *  2. Dynamic import() the MF remote container
+ *  3. Initialize container with shared scope
+ *  4. Get exposed module via container.get(".")
+ *  5. Call module.init(api) to register claims
+ *  6. Track cleanup functions
  */
 async function loadRemotePlugin(plugin: RemotePluginInfo): Promise<void> {
   const mfRemote = plugin.mfRemote!;
@@ -132,13 +134,33 @@ async function loadRemotePlugin(plugin: RemotePluginInfo): Promise<void> {
     return;
   }
 
-  // 2. Dynamic import the MF remote
-  let remoteModule: Record<string, unknown>;
+  // 2. Dynamic import the MF remote container
+  //    Rspack MF v1.5: import() returns a container with init(scope) + get(expose).
+  //    We access the exposed module ".", then call its init(api).
+  let pluginModule: Record<string, unknown>;
   try {
-    remoteModule = (await import(
+    const container = (await import(
       /* webpackIgnore: true */
       mfRemote
-    )) as Record<string, unknown>;
+    )) as {
+      init: (scope: unknown) => Promise<void>;
+      get: (expose: string) => Promise<() => Record<string, unknown>>;
+    };
+
+    // 3. Initialize the container with the default share scope.
+    //    __webpack_share_scopes__ is defined by the MF runtime when the host
+    //    initialises its shared modules (eager:true in rspack.config.ts).
+    const shareScope = (
+      globalThis as unknown as Record<string, unknown>
+    ).__webpack_share_scopes__ as Record<string, unknown> | undefined;
+
+    if (shareScope?.default) {
+      await container.init(shareScope.default);
+    }
+
+    // 4. Get the exposed module (key "." from rspack exposes config)
+    const factory = await container.get(".");
+    pluginModule = factory();
   } catch (err) {
     const msg =
       err instanceof Error ? err.message : "Unknown error importing remote";
@@ -147,7 +169,7 @@ async function loadRemotePlugin(plugin: RemotePluginInfo): Promise<void> {
     return;
   }
 
-  // 3. Create scoped API and call init(api)
+  // 5. Create scoped API and call module.init(api)
   const cleanups: Array<() => void> = [];
   const onCleanup = (fn: () => void) => cleanups.push(fn);
 
@@ -158,16 +180,16 @@ async function loadRemotePlugin(plugin: RemotePluginInfo): Promise<void> {
   );
 
   try {
-    if (typeof remoteModule.init !== "function") {
+    if (typeof pluginModule.init !== "function") {
       throw new Error(
         `Remote module does not export an init(api) function. ` +
-          `Exported keys: ${Object.keys(remoteModule).join(", ")}`,
+          `Exported keys: ${Object.keys(pluginModule).join(", ")}`,
       );
     }
 
-    const cleanup = (remoteModule.init as (api: DashboardPluginApi) => void | (() => void))(
-      api,
-    );
+    const cleanup = (
+      pluginModule.init as (api: DashboardPluginApi) => void | (() => void)
+    )(api);
 
     if (typeof cleanup === "function") {
       cleanups.push(cleanup);
@@ -186,7 +208,7 @@ async function loadRemotePlugin(plugin: RemotePluginInfo): Promise<void> {
     return;
   }
 
-  // 4. Track loaded plugin
+  // 6. Track loaded plugin
   loadedPlugins.set(pluginId, { id: pluginId, cleanupFns: cleanups });
   console.info(`[plugin-loader] ${pluginId}: loaded successfully`);
 }
