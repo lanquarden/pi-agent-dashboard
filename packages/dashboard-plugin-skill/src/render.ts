@@ -301,7 +301,7 @@ function renderSlotSections(slots: SlotId[], id: string, configTypeName: string)
     .trim() + "\n";
 }
 
-function validateNew(a: NewModeAnswers): void {
+function validateNew(a: { id: string; priority: number; slots: string[] }): void {
   if (!/^[a-z][a-z0-9-]*$/.test(a.id)) {
     throw new Error(`id "${a.id}" must be kebab-case (^[a-z][a-z0-9-]*$)`);
   }

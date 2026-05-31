@@ -154,7 +154,8 @@ export function createSlotRegistry(): SlotRegistry {
 
   /** Build a fresh snapshot — copies the bucket so mutations don't alias. */
   function applyFilter(claims: ClaimEntry[]): ClaimEntry[] {
-    const src = enabledSet === null ? claims : claims.filter((c) => enabledSet.has(c.pluginId));
+    const filter = enabledSet; // capture for narrowing inside callback
+    const src = filter === null ? claims : claims.filter((c) => filter.has(c.pluginId));
     return src.slice(); // defensive copy so stored snapshots are stable
   }
 

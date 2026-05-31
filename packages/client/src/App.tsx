@@ -122,6 +122,7 @@ import { emitPluginEvent, onPluginEvent } from "./lib/plugin-event-bus.js";
 import {
   wirePluginLoader,
   handlePluginsChanged,
+  type RemotePluginInfo,
 } from "./lib/plugin-loader.js";
 
 // Populate the slot registry from the build-time generated plugin manifest.
@@ -313,7 +314,7 @@ export default function App() {
   useEffect(() => {
     if (!send) return; // WS not ready yet
     const api = createDashboardPluginApi(
-      { registry: _pluginRegistry, send },
+      { registry: _pluginRegistry, send: send as (msg: unknown) => void },
       "__dashboard_host__",
       // onCleanup: no-op for the host itself — cleanup is per-plugin
       () => {},
@@ -333,7 +334,7 @@ export default function App() {
   // Wire the loader's deps once WS is ready.
   useEffect(() => {
     if (!send) return;
-    wirePluginLoader({ registry: _pluginRegistry, send });
+    wirePluginLoader({ registry: _pluginRegistry, send: send as (msg: unknown) => void });
   }, [send]);
 
   // Initial fetch of /api/plugins on mount to discover and load MF remotes.

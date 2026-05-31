@@ -90,4 +90,11 @@ export interface DashboardPluginApi {
    * Returns a promise that resolves after the message is queued.
    */
   setConfig(partial: Record<string, unknown>): Promise<void>;
+
+  /**
+   * Internal test helper — emit an event into the plugin event bus.
+   * Not part of the public plugin API surface.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  _emitEvent(type: string, event: unknown): void;
 }

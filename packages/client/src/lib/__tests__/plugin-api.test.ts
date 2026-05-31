@@ -39,8 +39,8 @@ function mockSession(id: string): DashboardSession {
   };
 }
 
-function fakeSend(): ReturnType<typeof vi.fn> {
-  return vi.fn();
+function fakeSend(): (msg: unknown) => void {
+  return vi.fn() as unknown as (msg: unknown) => void;
 }
 
 function makeApi(registry: SlotRegistry, send = fakeSend()) {

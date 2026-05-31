@@ -166,7 +166,8 @@ describe("error surfacing", () => {
     // Mock script creation so loadRemoteScript fails fast (jsdom doesn't fire script onload/onerror)
     // (jsdom doesn't fire script onload/onerror for created elements).
     const origCreateElement = document.createElement.bind(document);
-    vi.spyOn(document, "createElement").mockImplementation(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (vi.spyOn(document, "createElement") as any).mockImplementation(
       (tagName: string, _options?: ElementCreationOptions) => {
         const el = origCreateElement(tagName);
         if (tagName === "script") {

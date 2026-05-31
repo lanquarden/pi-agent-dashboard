@@ -12,7 +12,7 @@ import React, { useState, useCallback, useSyncExternalStore } from "react";
 import { useRoute, useLocation } from "wouter";
 import { useSlotClaims, CurrentPluginLayer } from "./plugin-context.js";
 import { useShellSessionOrNull } from "./shell-sessions-context.js";
-import { forSession, forSessionRendered, forFolder, forTab, forToolName, forCommand, type SlotRegistry } from "./slot-registry.js";
+import { forSession, forSessionRendered, forFolder, forTab, forToolName, forCommand, type SlotRegistry, type ClaimEntry } from "./slot-registry.js";
 import { SlotErrorBoundary } from "./slot-error-boundary.js";
 import { IntentRenderer } from "./intent-renderer.js";
 import { useSlotIntents } from "./intent-store.js";
@@ -438,7 +438,8 @@ export function ShellOverlayRouteSlot({
   registry?: SlotRegistry | null;
 }) {
   const ctxClaims = useSlotClaims("shell-overlay-route");
-  let claims: ClaimEntry[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let claims: any[];
   if (registryProp) {
     // Registry override (for use outside Provider): subscribe reactively
     // eslint-disable-next-line react-hooks/rules-of-hooks
@@ -480,7 +481,8 @@ export function ShellOverlayRouteSlot({
  */
 export function useShellOverlayRouteMatched(registry?: SlotRegistry | null): boolean {
   const ctxClaims = useSlotClaims("shell-overlay-route");
-  let claims: ClaimEntry[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let claims: any[];
   if (registry) {
     // Registry override (for use outside Provider): subscribe reactively
     // eslint-disable-next-line react-hooks/rules-of-hooks
