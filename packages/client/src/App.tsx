@@ -293,6 +293,9 @@ export default function App() {
   // ── DashboardPluginApi wiring ────────────────────────────────────────────
   // See change: runtime-plugin-loading (Decision 4).
 
+  // ── App state ───────────────────────────────────────────────────────────────
+  const [sessions, setSessions] = useState<Map<string, DashboardSession>>(new Map());
+
   // Sync session snapshot to the non-React session store bridge so plugin
   // APIs (getSession, getAllSessions, subscribeSession) can read sessions
   // from outside the React tree (i.e. from plugin init() functions).
@@ -436,7 +439,6 @@ export default function App() {
   const installPrompt = useInstallPrompt();
   const launchSource = useLaunchSource();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [sessions, setSessions] = useState<Map<string, DashboardSession>>(new Map());
   const [sessionStates, setSessionStates] = useState<Map<string, SessionState>>(new Map());
   // Per-session chat-input drafts. Hydrated once from localStorage on mount,
   // then persisted (debounced) whenever the map changes.

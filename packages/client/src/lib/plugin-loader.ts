@@ -12,6 +12,11 @@ import type { SlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtim
 import type { DashboardPluginApi } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/api.js";
 import { createDashboardPluginApi } from "./plugin-api.js";
 
+// __webpack_require__ is a closure variable available in all
+// rspack-compiled modules — used to access the federation runtime
+// and share scope (__webpack_require__.S).
+declare let __webpack_require__: Record<string, unknown> | undefined;
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 /** Minimal plugin shape from /api/plugins or plugins_changed broadcast. */
@@ -104,11 +109,73 @@ export async function handlePluginsChanged(plugins: RemotePluginInfo[]): Promise
   for (const fn of loadStateListeners) fn();
 }
 
+// ── MF remote entry script loader ────────────────────────────────────────────
+
+interface MfContainer {
+  init: (scope: unknown) => Promise<void>;
+  get: (expose: string) => Promise<() => Record<string, unknown>>;
+}
+
+/**
+ * Load a Module Federation remote entry as a <script> and return the
+ * container object it exposes.  Rspack MF remote entries are CJS-style
+ * scripts that set a global variable (named from the MF config) when
+ * loaded this way — they cannot be loaded via native import().
+ *
+ * We take a snapshot of window keys before loading, then scan for new
+ * keys containing init + get methods after the script fires.
+ */
+interface ScriptLoadResult {
+  container: MfContainer;
+  globalName: string;
+}
+
+async function loadScriptAndGetContainer(url: string): Promise<ScriptLoadResult> {
+  return new Promise((resolve, reject) => {
+    const before = new Set(Object.keys(window));
+
+    const script = document.createElement("script");
+    script.src = url;
+    script.async = true;
+    script.type = "text/javascript";
+
+    script.onload = () => {
+      for (const key of Object.keys(window)) {
+        if (before.has(key)) continue;
+        try {
+          const candidate = (window as unknown as Record<string, unknown>)[key];
+          if (
+            candidate &&
+            typeof candidate === "object" &&
+            typeof (candidate as MfContainer).init === "function" &&
+            typeof (candidate as MfContainer).get === "function"
+          ) {
+            resolve({ container: candidate as MfContainer, globalName: key });
+            return;
+          }
+        } catch { /* inaccessible */ }
+      }
+      reject(
+        new Error(
+          `Remote entry loaded but no MF container found on window. ` +
+            `New keys: ${Object.keys(window).filter((k) => !before.has(k)).join(", ") || "(none)"}`,
+        ),
+      );
+    };
+
+    script.onerror = () => {
+      reject(new Error(`Failed to load remote script: ${url}`));
+    };
+
+    document.head.appendChild(script);
+  });
+}
+
 /**
  * Load a single remote plugin via Module Federation.
  * Steps:
  *  1. Preflight HEAD to mfRemote URL
- *  2. Dynamic import() the MF remote container
+ *  2. Load remote entry as script, discover MF container
  *  3. Initialize container with shared scope
  *  4. Get exposed module via container.get(".")
  *  5. Call module.init(api) to register claims
@@ -134,33 +201,48 @@ async function loadRemotePlugin(plugin: RemotePluginInfo): Promise<void> {
     return;
   }
 
-  // 2. Dynamic import the MF remote container
-  //    Rspack MF v1.5: import() returns a container with init(scope) + get(expose).
-  //    We access the exposed module ".", then call its init(api).
+  // 2. Load the MF remote entry as a script.  Rspack MF remote entries
+  //    are CJS-style scripts that set a global container variable — they
+  //    cannot be loaded via native import().  After loading, we use the
+  //    host's federation runtime (registerRemote + loadRemote) to
+  //    properly negotiate shared modules (React, ReactDOM, etc.).
   let pluginModule: Record<string, unknown>;
   try {
-    const container = (await import(
-      /* webpackIgnore: true */
-      mfRemote
-    )) as {
-      init: (scope: unknown) => Promise<void>;
-      get: (expose: string) => Promise<() => Record<string, unknown>>;
-    };
+    const { container, globalName } = await loadScriptAndGetContainer(mfRemote);
 
-    // 3. Initialize the container with the default share scope.
-    //    __webpack_share_scopes__ is defined by the MF runtime when the host
-    //    initialises its shared modules (eager:true in rspack.config.ts).
-    const shareScope = (
-      globalThis as unknown as Record<string, unknown>
-    ).__webpack_share_scopes__ as Record<string, unknown> | undefined;
+    // Register the remote with the host's federation runtime so it can
+    // be loaded through the normal MF pipeline (with proper shared scope
+    // negotiation).  Use void 0 + comma to prevent tree-shaking.
+    const fed = (
+      typeof __webpack_require__ !== "undefined" ? __webpack_require__ : undefined
+    ) as Record<string, unknown> | undefined;
 
-    if (shareScope?.default) {
-      await container.init(shareScope.default);
+    if (fed?.federation) {
+      const inst = (fed.federation as { instance?: Record<string, unknown> }).instance;
+      if (inst) {
+        // registerRemotes (plural) is the public API on ModuleFederation.
+        // registerRemote (singular) lives on RemoteHandler and is not
+        // exposed on the instance — calling it was a silent no-op.
+        (inst.registerRemotes as (r: unknown[], o: unknown) => void)?.(
+          [{ name: globalName, entry: mfRemote, type: "global", entryGlobalName: globalName }],
+          { force: true },
+        );
+        pluginModule = await (inst.loadRemote as (n: string) => Promise<Record<string, unknown>>)(globalName);
+      }
     }
 
-    // 4. Get the exposed module (key "." from rspack exposes config)
-    const factory = await container.get(".");
-    pluginModule = factory();
+    if (!pluginModule) {
+      // Federation runtime not available — fall back to manual init
+      // using the host's share scope from __webpack_require__.S so
+      // shared modules (react, dashboard-plugin-runtime) resolve to
+      // the host's singletons.
+      const shareScope =
+        (__webpack_require__ as unknown as { S: Record<string, unknown> } | undefined)
+          ?.S ?? {};
+      await container.init(shareScope);
+      const factory = await container.get(".");
+      pluginModule = factory() as Record<string, unknown>;
+    }
   } catch (err) {
     const msg =
       err instanceof Error ? err.message : "Unknown error importing remote";

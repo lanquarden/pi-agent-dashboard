@@ -163,14 +163,26 @@ describe("error surfacing", () => {
     // Preflight ok
     globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
 
-    // But import returns a module without init()
-    // We can't mock dynamic import directly, so verify the preflight path at least
+    // Mock script creation so loadScriptAndGetContainer fails fast
+    // (jsdom doesn't fire script onload/onerror for created elements).
+    const origCreateElement = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation(
+      (tagName: string, _options?: ElementCreationOptions) => {
+        const el = origCreateElement(tagName);
+        if (tagName === "script") {
+          // Fire onerror asynchronously so the Promise settles.
+          queueMicrotask(() => {
+            (el as HTMLScriptElement).onerror?.(new Event("error"));
+          });
+        }
+        return el;
+      },
+    );
+
     const events: CustomEvent[] = [];
     const handler = (e: Event) => events.push(e as CustomEvent);
     window.addEventListener("plugin-load-error", handler);
 
-    // This plugin will fail at the import() step (not mockable), but the test
-    // still exercises the preflight path.
     await handlePluginsChanged([
       {
         id: "test-plugin",
@@ -179,9 +191,13 @@ describe("error surfacing", () => {
       },
     ]);
 
-    // The import will fail in Node (no such URL), but we can't control that.
-    // What we verify: the preflight check passed, and a load error event was
-    // dispatched for the failed import.
+    // The script load fails → a load error event is dispatched.
+    expect(events.length).toBeGreaterThanOrEqual(1);
+    expect((events[0] as CustomEvent).detail).toMatchObject({
+      pluginId: "test-plugin",
+      error: expect.stringContaining("Failed to load remote script"),
+    });
+
     window.removeEventListener("plugin-load-error", handler);
   });
 });

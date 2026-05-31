@@ -881,21 +881,29 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // architecture that scenario cannot occur; the npm-resolver-anchored
   // path is the only durable identity across install layouts.
   //
-  // Dev / monorepo fallbacks are still allowed when require.resolve
-  // misses (e.g. running from a checked-out workspace where the web
-  // package hasn't been linked yet).
+  // Dev / monorepo checkout: prefer the local workspace build over the
+  // npm-resolved package so edits to packages/client/ are served without
+  // a publish cycle. Fall back to require.resolve for installed layouts.
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   let clientDir = "";
-  try {
-    const webPkgJson = createRequire(import.meta.url).resolve(
-      "@blackbelt-technology/pi-dashboard-web/package.json",
-    );
-    const candidate = path.join(path.dirname(webPkgJson), "dist");
-    if (existsSync(path.join(candidate, "index.html"))) clientDir = candidate;
-  } catch {
-    // Web package not resolvable — try dev-monorepo sibling.
-    const devCandidate = path.join(__dirname, "../../client/dist");
-    if (existsSync(path.join(devCandidate, "index.html"))) clientDir = devCandidate;
+
+  // 1. Monorepo sibling (dev checkout).
+  const devCandidate = path.join(__dirname, "../../client/dist");
+  if (existsSync(path.join(devCandidate, "index.html"))) {
+    clientDir = devCandidate;
+  }
+
+  // 2. npm-resolved package (installed layout).
+  if (!clientDir) {
+    try {
+      const webPkgJson = createRequire(import.meta.url).resolve(
+        "@blackbelt-technology/pi-dashboard-web/package.json",
+      );
+      const candidate = path.join(path.dirname(webPkgJson), "dist");
+      if (existsSync(path.join(candidate, "index.html"))) clientDir = candidate;
+    } catch {
+      // Web package not resolvable.
+    }
   }
   const hasProductionBuild = !!clientDir;
   if (!hasProductionBuild) {
