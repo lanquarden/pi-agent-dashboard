@@ -2,9 +2,10 @@
  * Client-side runtime plugin loader.
  *
  * On page load, fetches /api/plugins and loads every enabled plugin that
- * declares an mfRemote entry via Module Federation `import()`. On
- * `plugins_changed` WS events, diffs against the loaded set and loads or
- * unloads plugins dynamically — no page refresh required.
+ * declares an mfRemote entry via script loading and the host's federation
+ * runtime (registerRemotes / loadRemote). On `plugins_changed` WS events,
+ * diffs against the loaded set and loads or unloads plugins dynamically —
+ * no page refresh required.
  *
  * See change: runtime-plugin-loading (spec: runtime-plugin-contract).
  */
@@ -14,7 +15,7 @@ import { createDashboardPluginApi } from "./plugin-api.js";
 
 // __webpack_require__ is a closure variable available in all
 // rspack-compiled modules — used to access the federation runtime
-// and share scope (__webpack_require__.S).
+// instance (__webpack_require__.federation.instance).
 declare let __webpack_require__: Record<string, unknown> | undefined;
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -111,26 +112,17 @@ export async function handlePluginsChanged(plugins: RemotePluginInfo[]): Promise
 
 // ── MF remote entry script loader ────────────────────────────────────────────
 
-interface MfContainer {
-  init: (scope: unknown) => Promise<void>;
-  get: (expose: string) => Promise<() => Record<string, unknown>>;
-}
-
 /**
- * Load a Module Federation remote entry as a <script> and return the
- * container object it exposes.  Rspack MF remote entries are CJS-style
- * scripts that set a global variable (named from the MF config) when
- * loaded this way — they cannot be loaded via native import().
+ * Load a Module Federation remote entry as a <script> and return its
+ * global variable name (the MF container name).  Rspack MF remote entries
+ * are CJS-style scripts that set a global variable when loaded this way —
+ * they cannot be loaded via native import().
  *
  * We take a snapshot of window keys before loading, then scan for new
- * keys containing init + get methods after the script fires.
+ * keys containing init + get methods after the script fires to discover
+ * the global name.
  */
-interface ScriptLoadResult {
-  container: MfContainer;
-  globalName: string;
-}
-
-async function loadScriptAndGetContainer(url: string): Promise<ScriptLoadResult> {
+async function loadRemoteScript(url: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const before = new Set(Object.keys(window));
 
@@ -147,10 +139,10 @@ async function loadScriptAndGetContainer(url: string): Promise<ScriptLoadResult>
           if (
             candidate &&
             typeof candidate === "object" &&
-            typeof (candidate as MfContainer).init === "function" &&
-            typeof (candidate as MfContainer).get === "function"
+            typeof (candidate as Record<string, unknown>).init === "function" &&
+            typeof (candidate as Record<string, unknown>).get === "function"
           ) {
-            resolve({ container: candidate as MfContainer, globalName: key });
+            resolve(key);
             return;
           }
         } catch { /* inaccessible */ }
@@ -175,9 +167,11 @@ async function loadScriptAndGetContainer(url: string): Promise<ScriptLoadResult>
  * Load a single remote plugin via Module Federation.
  * Steps:
  *  1. Preflight HEAD to mfRemote URL
- *  2. Load remote entry as script, discover MF container
- *  3. Initialize container with shared scope
- *  4. Get exposed module via container.get(".")
+ *  2. Load remote entry as <script>, discover global container name
+ *  3. Register the remote with the host's federation runtime
+ *     (registerRemotes) so shared modules resolve correctly
+ *  4. Load the remote module via the runtime (loadRemote), which
+ *     internally handles container.init + container.get(".")
  *  5. Call module.init(api) to register claims
  *  6. Track cleanup functions
  */
@@ -201,48 +195,39 @@ async function loadRemotePlugin(plugin: RemotePluginInfo): Promise<void> {
     return;
   }
 
-  // 2. Load the MF remote entry as a script.  Rspack MF remote entries
+  // 2. Load the MF remote entry as a <script>.  Rspack MF remote entries
   //    are CJS-style scripts that set a global container variable — they
   //    cannot be loaded via native import().  After loading, we use the
-  //    host's federation runtime (registerRemote + loadRemote) to
+  //    host's federation runtime (registerRemotes + loadRemote) to
   //    properly negotiate shared modules (React, ReactDOM, etc.).
   let pluginModule: Record<string, unknown>;
   try {
-    const { container, globalName } = await loadScriptAndGetContainer(mfRemote);
+    const globalName = await loadRemoteScript(mfRemote);
 
     // Register the remote with the host's federation runtime so it can
     // be loaded through the normal MF pipeline (with proper shared scope
-    // negotiation).  Use void 0 + comma to prevent tree-shaking.
+    // negotiation).
     const fed = (
       typeof __webpack_require__ !== "undefined" ? __webpack_require__ : undefined
     ) as Record<string, unknown> | undefined;
 
-    if (fed?.federation) {
-      const inst = (fed.federation as { instance?: Record<string, unknown> }).instance;
-      if (inst) {
-        // registerRemotes (plural) is the public API on ModuleFederation.
-        // registerRemote (singular) lives on RemoteHandler and is not
-        // exposed on the instance — calling it was a silent no-op.
-        (inst.registerRemotes as (r: unknown[], o: unknown) => void)?.(
-          [{ name: globalName, entry: mfRemote, type: "global", entryGlobalName: globalName }],
-          { force: true },
-        );
-        pluginModule = await (inst.loadRemote as (n: string) => Promise<Record<string, unknown>>)(globalName);
-      }
+    if (!fed?.federation) {
+      throw new Error("Federation runtime not available — no __webpack_require__.federation");
     }
 
-    if (!pluginModule) {
-      // Federation runtime not available — fall back to manual init
-      // using the host's share scope from __webpack_require__.S so
-      // shared modules (react, dashboard-plugin-runtime) resolve to
-      // the host's singletons.
-      const shareScope =
-        (__webpack_require__ as unknown as { S: Record<string, unknown> } | undefined)
-          ?.S ?? {};
-      await container.init(shareScope);
-      const factory = await container.get(".");
-      pluginModule = factory() as Record<string, unknown>;
+    const inst = (fed.federation as { instance?: Record<string, unknown> }).instance;
+    if (!inst) {
+      throw new Error("Federation runtime instance not initialised");
     }
+
+    // registerRemotes (plural) is the public API on ModuleFederation.
+    // registerRemote (singular) lives on RemoteHandler and is not
+    // exposed on the instance — calling it was a silent no-op.
+    (inst.registerRemotes as (r: unknown[], o: unknown) => void)?.(
+      [{ name: globalName, entry: mfRemote, type: "global", entryGlobalName: globalName }],
+      { force: true },
+    );
+    pluginModule = await (inst.loadRemote as (n: string) => Promise<Record<string, unknown>>)(globalName);
   } catch (err) {
     const msg =
       err instanceof Error ? err.message : "Unknown error importing remote";

@@ -17,14 +17,14 @@ MF remote entries SHALL export a function `init(api: DashboardPluginApi): void |
 ### Requirement: Runtime loader fetches manifests and loads remotes
 
 A runtime loader at `packages/client/src/lib/plugin-loader.ts` SHALL:
-1. On page load: `GET /api/plugins`, filter enabled plugins with `mfRemote`, `import()` each, call `init(api)`.
+1. On page load: `GET /api/plugins`, filter enabled plugins with `mfRemote`, load each remote entry as a `<script>`, discover the global container name, register the remote with the host's federation runtime via `registerRemotes`, then load the exposed module via `loadRemote` and call `init(api)`.
 2. On `plugins_changed` WS event: diff against loaded set, load newly enabled, unload removed/disabled.
 3. Track loaded plugins in `Map<id, { cleanup, claims[] }>`.
 
 #### Scenario: Plugin loads without page refresh
 
 - **WHEN** `plugins_changed` broadcast includes new plugin with `mfRemote`
-- **THEN** loader SHALL import the remote, call init, and components SHALL render within ~2 seconds.
+- **THEN** loader SHALL load the remote via script injection + federation runtime, call init, and components SHALL render within ~2 seconds.
 
 #### Scenario: Plugin unloads on removal
 
@@ -33,12 +33,12 @@ A runtime loader at `packages/client/src/lib/plugin-loader.ts` SHALL:
 
 ### Requirement: Loading errors surfaced in PluginStatus
 
-The loader SHALL preflight `HEAD` to `mfRemote` URL before `import()`. Errors from `import()` or `init()` SHALL be caught and reported to `PluginStatusStore`. `<PluginsSection>` SHALL show a red "failed" badge with error text.
+The loader SHALL preflight `HEAD` to `mfRemote` URL before loading the remote entry. Errors from script loading, federation runtime registration, or `init()` SHALL be caught and reported to `PluginStatusStore`. `<PluginsSection>` SHALL show a red "failed" badge with error text.
 
 #### Scenario: 404 on remote entry
 
 - **WHEN** `HEAD /plugins/broken/remoteEntry.js` returns 404
-- **THEN** `import()` SHALL be skipped. Plugin SHALL show "Failed to load remote entry: 404" in UI.
+- **THEN** remote loading SHALL be skipped. Plugin SHALL show "Failed to load remote entry: 404" in UI.
 
 ### Requirement: Comprehensive unload
 

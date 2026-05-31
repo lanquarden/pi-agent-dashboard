@@ -18,8 +18,8 @@
 
 - [x] 3.1 Create `packages/client/src/lib/plugin-loader.ts`: `fetchManifests()`, `loadRemotePlugin(manifest)`, `unloadPlugin(id)`, `handlePluginsChanged(plugins)`.
 - [x] 3.2 Wire `handlePluginsChanged` to `plugins_changed` WS event.
-- [x] 3.3 Preflight `HEAD` to `mfRemote` URL before `import()`. Catch errors, surface in `PluginStatusStore`.
-- [x] 3.4 Unit tests: mock `import()`, verify claims registered, cleanup on unload, error surfacing.
+- [x] 3.3 Preflight `HEAD` to `mfRemote` URL before script loading. Catch errors, surface in `PluginStatusStore`.
+- [x] 3.4 Unit tests: mock script loading + federation runtime, verify claims registered, cleanup on unload, error surfacing.
 
 ## 4. Server bundle serving
 

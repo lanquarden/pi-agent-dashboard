@@ -81,7 +81,7 @@ describe("handlePluginsChanged", () => {
       { id: "valid", enabled: true, mfRemote: "/test/remote.js" },
     ]);
 
-    // None should be loaded since we can't mock import() in this test env
+    // None should be loaded — script loading + federation runtime aren't mocked in jsdom
     expect(getLoadedPluginIds()).toEqual([]);
   });
 });
@@ -163,7 +163,7 @@ describe("error surfacing", () => {
     // Preflight ok
     globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
 
-    // Mock script creation so loadScriptAndGetContainer fails fast
+    // Mock script creation so loadRemoteScript fails fast (jsdom doesn't fire script onload/onerror)
     // (jsdom doesn't fire script onload/onerror for created elements).
     const origCreateElement = document.createElement.bind(document);
     vi.spyOn(document, "createElement").mockImplementation(
