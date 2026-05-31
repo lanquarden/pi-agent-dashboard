@@ -250,9 +250,10 @@ describe("session access", () => {
     // (subscribeSession only fires on subsequent changes)
     expect(fn).not.toHaveBeenCalled();
 
-    setSessionSnapshot([mockSession("new")]);
+    const newSession = mockSession("new");
+    setSessionSnapshot([newSession]);
     expect(fn).toHaveBeenCalledTimes(1);
-    expect(fn).toHaveBeenCalledWith([mockSession("new")]);
+    expect(fn).toHaveBeenCalledWith([newSession]);
 
     // Multiple changes
     setSessionSnapshot([mockSession("a"), mockSession("b")]);
