@@ -17,7 +17,7 @@ import path from "node:path";
 import os from "node:os";
 import { createWriteStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
-import { execSync, spawnSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process"; // ban:child_process-ok — npm install orchestrator
 import type { NetworkGuard } from "./route-deps.js";
 import type { PluginManifest } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
 import {
