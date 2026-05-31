@@ -91,10 +91,7 @@ export interface DashboardPluginApi {
    */
   setConfig(partial: Record<string, unknown>): Promise<void>;
 
-  /**
-   * Internal test helper — emit an event into the plugin event bus.
-   * Not part of the public plugin API surface.
-   */
+  /** @internal Test helper — emit an event into the plugin event bus. */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   _emitEvent(type: string, event: unknown): void;
 }

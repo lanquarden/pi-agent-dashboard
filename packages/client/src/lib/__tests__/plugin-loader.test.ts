@@ -163,9 +163,11 @@ describe("error surfacing", () => {
     // Preflight ok
     globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
 
-    // Mock script creation so loadRemoteScript fails fast (jsdom doesn't fire script onload/onerror)
+    // Mock script creation so loadRemoteScript fails fast
     // (jsdom doesn't fire script onload/onerror for created elements).
     const origCreateElement = document.createElement.bind(document);
+    // document.createElement has overloaded return types (e.g. "webview" →
+    // WebviewTag) — a single mock implementation can't satisfy all of them.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (vi.spyOn(document, "createElement") as any).mockImplementation(
       (tagName: string, _options?: ElementCreationOptions) => {

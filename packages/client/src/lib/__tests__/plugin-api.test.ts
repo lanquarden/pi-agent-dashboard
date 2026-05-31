@@ -11,6 +11,7 @@ import {
   initDashboardPluginApi,
   subscribeToasts,
 } from "../plugin-api.js";
+import type { DashboardPluginApi } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/api.js";
 import { setSessionSnapshot, __resetSessionStoreForTests } from "../session-store.js";
 import { __resetPluginEventBusForTests } from "../plugin-event-bus.js";
 import type {
@@ -40,7 +41,7 @@ function mockSession(id: string): DashboardSession {
 }
 
 function fakeSend(): (msg: unknown) => void {
-  return vi.fn() as unknown as (msg: unknown) => void;
+  return vi.fn<(msg: unknown) => void>();
 }
 
 function makeApi(registry: SlotRegistry, send = fakeSend()) {
@@ -52,6 +53,15 @@ function makeApi(registry: SlotRegistry, send = fakeSend()) {
     onCleanup,
   );
   return { api, cleanups, send };
+}
+
+/**
+ * Test helper — emit an event into the plugin event bus via the
+ * internal _emitEvent method (not part of the public API).
+ */
+function emitTestEvent(api: DashboardPluginApi, type: string, event: unknown): void {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (api as any)._emitEvent(type, event);
 }
 
 beforeEach(() => {
@@ -260,7 +270,7 @@ describe("onEvent", () => {
     const fn = vi.fn();
     api.onEvent("session_updated", fn);
 
-    api._emitEvent("session_updated", { type: "session_updated", sessionId: "1" });
+    emitTestEvent(api, "session_updated", { type: "session_updated", sessionId: "1" });
     expect(fn).toHaveBeenCalledTimes(1);
   });
 
@@ -271,7 +281,7 @@ describe("onEvent", () => {
     const fn = vi.fn();
     api.onEvent("pi-dev-worktrees:state", fn);
 
-    api._emitEvent("session_updated", { type: "session_updated" });
+    emitTestEvent(api, "session_updated", { type: "session_updated" });
     expect(fn).not.toHaveBeenCalled();
   });
 
@@ -282,11 +292,11 @@ describe("onEvent", () => {
     const fn = vi.fn();
     const unsub = api.onEvent("test", fn);
 
-    api._emitEvent("test", {});
+    emitTestEvent(api, "test", {});
     expect(fn).toHaveBeenCalledTimes(1);
 
     unsub();
-    api._emitEvent("test", {});
+    emitTestEvent(api, "test", {});
     expect(fn).toHaveBeenCalledTimes(1); // no additional call
   });
 });

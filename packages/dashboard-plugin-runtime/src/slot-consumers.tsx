@@ -438,8 +438,7 @@ export function ShellOverlayRouteSlot({
   registry?: SlotRegistry | null;
 }) {
   const ctxClaims = useSlotClaims("shell-overlay-route");
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let claims: any[];
+  let claims: ClaimEntry[];
   if (registryProp) {
     // Registry override (for use outside Provider): subscribe reactively
     // eslint-disable-next-line react-hooks/rules-of-hooks
@@ -453,12 +452,12 @@ export function ShellOverlayRouteSlot({
   } else {
     claims = [];
   }
-  claims = claims as ShellOverlayRouteClaim[];
+  const routeClaims = claims as unknown as ShellOverlayRouteClaim[];
   // Each ShellOverlayRouteProbe is a separate component - one useRoute call
   // per claim. The first probe whose route matches reports up via
   // `onMatched`. We render at most one match (first-wins).
   return (
-    <ShellOverlayRouteSwitch claims={claims} onBack={onBack} />
+    <ShellOverlayRouteSwitch claims={routeClaims} onBack={onBack} />
   );
 }
 
@@ -481,8 +480,7 @@ export function ShellOverlayRouteSlot({
  */
 export function useShellOverlayRouteMatched(registry?: SlotRegistry | null): boolean {
   const ctxClaims = useSlotClaims("shell-overlay-route");
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let claims: any[];
+  let claims: ClaimEntry[];
   if (registry) {
     // Registry override (for use outside Provider): subscribe reactively
     // eslint-disable-next-line react-hooks/rules-of-hooks
@@ -498,7 +496,7 @@ export function useShellOverlayRouteMatched(registry?: SlotRegistry | null): boo
   }
   const [location] = useLocation();
   let matched = false;
-  for (const c of claims) {
+  for (const c of claims as unknown as ShellOverlayRouteClaim[]) {
     const path = overlayPath(c);
     if (!path) continue;
     if (matchWouterPattern(path, location)) {

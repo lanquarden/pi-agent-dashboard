@@ -29,7 +29,14 @@ export type SlotId =
   | "settings-section"
   | "tool-renderer";
 
-export interface NewModeAnswers {
+/** Shared fields validated by {@link validateNew}. */
+interface NewModeBase {
+  id: string;
+  priority: number;
+  slots: SlotId[];
+}
+
+export interface NewModeAnswers extends NewModeBase {
   mode: "new";
   /** Kebab-case id; final dir is `packages/<id>-plugin/`. */
   id: string;
@@ -87,7 +94,7 @@ export type Answers = NewModeAnswers | AugmentModeAnswers | MfRemoteModeAnswers 
  *
  * See change: runtime-plugin-loading (Task 10).
  */
-export interface MfRemoteModeAnswers {
+export interface MfRemoteModeAnswers extends NewModeBase {
   mode: "mf-remote";
   /** Kebab-case id; final dir is `<outDir>/`. */
   id: string;
@@ -301,7 +308,7 @@ function renderSlotSections(slots: SlotId[], id: string, configTypeName: string)
     .trim() + "\n";
 }
 
-function validateNew(a: { id: string; priority: number; slots: string[] }): void {
+function validateNew(a: NewModeBase): void {
   if (!/^[a-z][a-z0-9-]*$/.test(a.id)) {
     throw new Error(`id "${a.id}" must be kebab-case (^[a-z][a-z0-9-]*$)`);
   }
