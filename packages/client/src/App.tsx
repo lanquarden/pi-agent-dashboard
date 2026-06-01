@@ -39,6 +39,7 @@ import { QueuePanel } from "./components/QueuePanel.js";
 import { readAllDrafts, writeDraft, deleteDraft } from "./lib/draft-storage.js";
 import { extractUserPromptHistory } from "./lib/message-history.js";
 import { StatusBar } from "./components/StatusBar.js";
+import { resolveModelLabel } from "./lib/model-label.js";
 import { ComposerSessionActions } from "./components/ComposerSessionActions.js";
 import { Icon } from "@mdi/react";
 import { mdiRefresh } from "@mdi/js";
@@ -1044,6 +1045,7 @@ export default function App() {
       openspecMap={openspecMap}
       openspecGroupsMap={openspecGroupsMap}
       sessionOrderMap={sessionOrderMap}
+      modelsMap={modelsMap}
       onReorderSessions={(cwd, sessionIds) => {
         setSessionOrderMap((prev) => {
           const next = new Map(prev);
@@ -1160,6 +1162,7 @@ export default function App() {
       <SessionHeader
         session={sessions.get(selectedId)}
         state={selectedState}
+        models={modelsMap.get(selectedId)}
         onRename={handleRenameSession}
         showBack
         onBack={goBack}
@@ -1216,7 +1219,11 @@ export default function App() {
         <div className="px-4 py-1.5 border-b border-[var(--border-primary)] text-xs text-[var(--text-tertiary)]">
           <div className="flex items-center gap-2 flex-wrap">
             {(selectedState.model || selectedSession.model) && (
-              <span>{selectedState.model || selectedSession.model}</span>
+              <span>{(() => {
+                const current = selectedState.model || selectedSession.model;
+                const list = modelsMap.get(selectedId);
+                return resolveModelLabel(current, list) ?? current;
+              })()}</span>
             )}
             {(selectedState.thinkingLevel || selectedSession.thinkingLevel) && (
               <span>💭 {selectedState.thinkingLevel || selectedSession.thinkingLevel}</span>

@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import { Icon } from "@mdi/react";
 import { mdiChevronDown, mdiLoading } from "@mdi/js";
 import type { ModelInfo, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { resolveModelLabel } from "../lib/model-label.js";
 
 interface Props {
   current?: string;
@@ -135,7 +136,7 @@ export function ModelSelector({ current, models, onSelect }: Props) {
               {pendingModel} <Icon path={mdiLoading} size={0.4} className="inline animate-spin" />
             </>
           ) : (
-            current ?? "no model"
+            current ? (resolveModelLabel(current, models) ?? current) : "no model"
           )}
         </span>
         {hasModels && !pendingModel && <Icon path={mdiChevronDown} size={0.5} />}

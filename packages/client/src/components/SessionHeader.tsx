@@ -15,10 +15,13 @@ import { SearchableSelectDialog, type SelectOption } from "./SearchableSelectDia
 import { FooterSegmentSlot } from "./extension-ui/FooterSegmentSlot.js";
 import { ArtifactLettersButton } from "./openspec-helpers.js";
 import { resolveModelLabel } from "../lib/model-label.js";
+import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 interface Props {
   session?: DashboardSession;
   state: SessionState;
+  /** Optional models list for the active session — used to render a friendly model label. */
+  models?: ModelInfo[];
   onRename?: (sessionId: string, name: string) => void;
   showBack?: boolean;
   onBack?: () => void;
@@ -277,7 +280,7 @@ function formatDuration(ms: number): string {
   return `${seconds}s`;
 }
 
-export function SessionHeader({ session, state, onRename, showBack, onBack, mobileActions, commands, onSendPrompt, openspecChanges, onAttachProposal, onDetachProposal, hasFileChanges, onOpenDiffView, onRefresh, onReadArtifact, onOpenExtensionModulePicker, onResume }: Props) {
+export function SessionHeader({ session, state, models, onRename, showBack, onBack, mobileActions, commands, onSendPrompt, openspecChanges, onAttachProposal, onDetachProposal, hasFileChanges, onOpenDiffView, onRefresh, onReadArtifact, onOpenExtensionModulePicker, onResume }: Props) {
   const [now, setNow] = useState(Date.now());
   const [isRenaming, setIsRenaming] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -395,7 +398,11 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
           )}
         </span>
       )}
-      {(state.model || session.model) && <span className="text-[var(--text-secondary)]">{resolveModelLabel(state.model || session.model, (window as any).__piModelsList as import("@blackbelt-technology/pi-dashboard-shared/types.js").ModelInfo[] | undefined) ?? (state.model || session.model)}</span>}
+      {(state.model || session.model) && (
+        <span className="text-[var(--text-secondary)]">
+          {resolveModelLabel(state.model || session.model, models) ?? (state.model || session.model)}
+        </span>
+      )}
       {(state.thinkingLevel || session.thinkingLevel) && (
         <span className="text-[var(--text-tertiary)] inline-flex items-center gap-0.5"><Icon path={mdiHeadLightbulb} size={0.45} /> {state.thinkingLevel || session.thinkingLevel}</span>
       )}

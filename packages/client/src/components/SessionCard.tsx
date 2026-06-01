@@ -16,7 +16,7 @@ import {
 // from SessionCard. See change: add-session-status-to-folder-proposal-rows.
 export const statusColors = statusColorsExt;
 export const sourceBadgeColors = sourceBadgeColorsExt;
-import type { DashboardSession, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { DashboardSession, ImageContent, ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { getSessionDisplayName } from "../lib/session-display-name.js";
 import { formatRelativeTime, formatTokens } from "../lib/format.js";
 import { selectBadgeTimestamp } from "../lib/session-card-time.js";
@@ -43,6 +43,7 @@ import { SessionSubcard } from "./SessionSubcard.js";
 import { CwdGonePill } from "./CwdGonePill.js";
 import { WorktreeActionsMenu } from "./WorktreeActionsMenu.js";
 import { useSessionCardDragHandle } from "./SortableSessionCard.js";
+import { resolveModelLabel } from "../lib/model-label.js";
 
 /**
  * @param hasWidgetBarPrompt true when the session has a pending PromptBus
@@ -349,6 +350,7 @@ export function SessionCard({
   onAbortTool,
   hasError,
   isRetrying,
+  models,
 }: {
   session: DashboardSession;
   selectedId?: string;
@@ -421,6 +423,8 @@ export function SessionCard({
   hasError?: boolean;
   /** True iff a synthesized provider retry is in flight (retryState set, no error yet). */
   isRetrying?: boolean;
+  /** Optional models list for friendly model label rendering */
+  models?: ModelInfo[];
 }) {
   // dnd-kit drag handle props (attributes + listeners) supplied by
   // SortableSessionCard via context. When non-null, the desktop card's left
@@ -489,7 +493,7 @@ export function SessionCard({
         <div className="flex items-center mt-1 gap-2 text-[12px]">
           {session.model && (
             <span className="text-[var(--text-tertiary)] truncate">
-              {session.model}
+              {resolveModelLabel(session.model, models) ?? session.model}
             </span>
           )}
           <ActivityIndicator session={session} />
@@ -686,7 +690,7 @@ export function SessionCard({
       <div className="flex items-center mt-0.5 gap-1.5">
         {session.model && (
           <span className="text-xs text-[var(--text-tertiary)] truncate">
-            {session.model}{session.thinkingLevel ? ` (${session.thinkingLevel})` : ""}
+            {(resolveModelLabel(session.model, models) ?? session.model)}{session.thinkingLevel ? ` (${session.thinkingLevel})` : ""}
           </span>
         )}
         <span className="flex-1" />
