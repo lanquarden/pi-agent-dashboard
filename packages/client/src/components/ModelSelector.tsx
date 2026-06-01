@@ -194,11 +194,12 @@ export function ModelSelector({ current, models, onSelect }: Props) {
                     key={label}
                     data-model-item
                     onClick={() => handleSelect(m)}
-                    className={`w-full px-3 py-1 min-h-[44px] md:min-h-0 md:py-1 text-left text-xs font-mono flex items-center gap-2 ${
+                    className={`w-full px-3 py-1 min-h-[44px] md:min-h-0 md:py-1 text-left text-xs flex items-center gap-2 ${
                       i === selectedIndex ? "bg-[var(--bg-tertiary)]" : "hover:bg-[var(--bg-hover)]"
                     } ${isCurrent ? "text-[var(--accent-blue)]" : "text-[var(--text-secondary)]"}`}
                   >
-                    <span className="truncate">{label}</span>
+                    <span className="truncate">{(m as any).name || (m as any).providerName ? `${(m as any).name ?? m.id} (${(m as any).providerName ?? m.provider})` : label}</span>
+                    <span className="ml-auto text-[10px] text-[var(--text-muted)] font-mono">{label}</span>
                   </button>
                 );
               })

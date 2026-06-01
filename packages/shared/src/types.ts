@@ -404,6 +404,10 @@ export interface ContextUsage {
 export interface ModelInfo {
   provider: string;
   id: string;
+  /** Optional friendly model name (e.g., "GPT-5.5"). */
+  name?: string;
+  /** Optional provider display name (e.g., "Azure"). */
+  providerName?: string;
 }
 
 /**

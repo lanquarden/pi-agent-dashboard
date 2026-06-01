@@ -14,6 +14,7 @@ import { useMobile } from "../hooks/useMobile.js";
 import { SearchableSelectDialog, type SelectOption } from "./SearchableSelectDialog.js";
 import { FooterSegmentSlot } from "./extension-ui/FooterSegmentSlot.js";
 import { ArtifactLettersButton } from "./openspec-helpers.js";
+import { resolveModelLabel } from "../lib/model-label.js";
 
 interface Props {
   session?: DashboardSession;
@@ -394,7 +395,7 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
           )}
         </span>
       )}
-      {(state.model || session.model) && <span className="text-[var(--text-secondary)]">{state.model || session.model}</span>}
+      {(state.model || session.model) && <span className="text-[var(--text-secondary)]">{resolveModelLabel(state.model || session.model, (window as any).__piModelsList as import("@blackbelt-technology/pi-dashboard-shared/types.js").ModelInfo[] | undefined) ?? (state.model || session.model)}</span>}
       {(state.thinkingLevel || session.thinkingLevel) && (
         <span className="text-[var(--text-tertiary)] inline-flex items-center gap-0.5"><Icon path={mdiHeadLightbulb} size={0.45} /> {state.thinkingLevel || session.thinkingLevel}</span>
       )}
