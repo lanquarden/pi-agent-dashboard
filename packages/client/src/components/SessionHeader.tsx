@@ -7,6 +7,7 @@ import type { DetectedEditor } from "../lib/editor-api.js";
 import { getSessionDisplayName } from "../lib/session-display-name.js";
 import { InlineRenameInput } from "./InlineRenameInput.js";
 import { MobileActionMenu } from "./MobileActionMenu.js";
+import { resolveModelLabel } from "../lib/model-label.js";
 import { useMobile } from "../hooks/useMobile.js";
 // FlowLaunchDialog removed: flow launching is owned entirely by
 // flows-plugin's command-route claims (/flows, /flows:new, etc.) and
@@ -394,7 +395,15 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
           )}
         </span>
       )}
-      {(state.model || session.model) && <span className="text-[var(--text-secondary)]">{state.model || session.model}</span>}
+      {(state.model || session.model) && (
+        <span className="text-[var(--text-secondary)]">
+          {(() => {
+            const raw = state.model || session.model;
+            const list = (window as any).__piModelsList as import("@blackbelt-technology/pi-dashboard-shared/types.js").ModelInfo[] | undefined;
+            return resolveModelLabel(raw, list) ?? raw;
+          })()}
+        </span>
+      )}
       {(state.thinkingLevel || session.thinkingLevel) && (
         <span className="text-[var(--text-tertiary)] inline-flex items-center gap-0.5"><Icon path={mdiHeadLightbulb} size={0.45} /> {state.thinkingLevel || session.thinkingLevel}</span>
       )}
