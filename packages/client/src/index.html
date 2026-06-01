@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
     <meta name="theme-color" content="#3b82f6" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="msapplication-TileImage" content="/icon-192.png" />
@@ -15,6 +16,29 @@
   </head>
   <body>
     <div id="root"></div>
+    <!--
+      Plugin API proxy — queues method calls before React mounts.
+      Once createDashboardPluginApi() initialises the real API, it replays
+      the queue and replaces window.__piDashboard with the live API.
+      See change: runtime-plugin-loading (Decision 4).
+    -->
+    <script>
+      (function() {
+        var queue = [];
+        var proxy = new Proxy({}, {
+          get: function(_, prop) {
+            return function() {
+              var args = Array.prototype.slice.call(arguments);
+              queue.push({ method: prop, args: args });
+              return function() {}; // no-op unregister for queued calls
+            };
+          }
+        });
+        proxy.__queue = queue;
+        proxy.__isProxy = true;
+        window.__piDashboard = proxy;
+      })();
+    </script>
     <script type="module" src="./main.tsx"></script>
   </body>
 </html>

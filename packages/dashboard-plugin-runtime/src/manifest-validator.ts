@@ -300,6 +300,7 @@ export function validateManifest(raw: unknown, fallbackId = "unknown"): PluginMa
     ...(typeof m.server === "string" ? { server: m.server } : {}),
     ...(typeof m.bridge === "string" ? { bridge: m.bridge } : {}),
     ...(typeof m.configSchema === "string" ? { configSchema: m.configSchema } : {}),
+    ...(typeof m.mfRemote === "string" ? { mfRemote: m.mfRemote } : {}),
     ...(m.fixture === true ? { fixture: true } : {}),
     ...(requires ? { requires } : {}),
     ...(dependsOn ? { dependsOn } : {}),

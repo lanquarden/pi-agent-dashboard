@@ -356,6 +356,25 @@ export function useSlotRegistry(): SlotRegistry {
   return ctx.registry;
 }
 
+/**
+ * Reactive hook: returns all claims for a slot, re-rendering when claims
+ * are added, removed, or the enabled set changes at runtime. Uses
+ * `useSyncExternalStore` to subscribe to the registry's mutation events.
+ *
+ * Returns `null` when outside a PluginContextProvider (graceful degradation).
+ * See change: runtime-plugin-loading (Task 7).
+ */
+export function useSlotClaims(slotId: SlotId): ClaimEntry[] | null {
+  const ctx = useContext(PluginReactContext);
+  if (!ctx) return null;
+  const registry = ctx.registry;
+  return useSyncExternalStore(
+    (cb) => registry.subscribe(cb),
+    () => registry.getClaims(slotId),
+    () => registry.getClaims(slotId),
+  );
+}
+
 // ── Provider ─────────────────────────────────────────────────────────────────
 
 export interface PluginContextProviderProps {

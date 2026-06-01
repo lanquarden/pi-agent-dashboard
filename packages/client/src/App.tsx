@@ -116,6 +116,17 @@ import {
 import { createSlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { PLUGIN_REGISTRY } from "./generated/plugin-registry.js";
 import { usePluginEnabledSet } from "./hooks/usePluginEnabledSet.js";
+import {
+  createDashboardPluginApi,
+  initDashboardPluginApi,
+} from "./lib/plugin-api.js";
+import { setSessionSnapshot } from "./lib/session-store.js";
+import { emitPluginEvent, onPluginEvent } from "./lib/plugin-event-bus.js";
+import {
+  wirePluginLoader,
+  handlePluginsChanged,
+  type RemotePluginInfo,
+} from "./lib/plugin-loader.js";
 
 // Populate the slot registry from the build-time generated plugin manifest.
 // PLUGIN_REGISTRY is `[]` on a fresh checkout (committed stub) — slot consumers
@@ -282,6 +293,85 @@ export default function App() {
   // thread it through props here.
   // See change: add-plugin-activation-ui.
   usePluginEnabledSet(_pluginRegistry);
+
+  // ── DashboardPluginApi wiring ────────────────────────────────────────────
+  // See change: runtime-plugin-loading (Decision 4).
+
+  // ── App state ───────────────────────────────────────────────────────────────
+  const [sessions, setSessions] = useState<Map<string, DashboardSession>>(new Map());
+
+  // Sync session snapshot to the non-React session store bridge so plugin
+  // APIs (getSession, getAllSessions, subscribeSession) can read sessions
+  // from outside the React tree (i.e. from plugin init() functions).
+  const allSessionsList = useMemo(
+    () => Array.from(sessions.values()),
+    [sessions],
+  );
+  useEffect(() => {
+    setSessionSnapshot(allSessionsList);
+  }, [allSessionsList]);
+
+  // Create the DashboardPluginApi and replace the pre-React proxy on
+  // window.__piDashboard. This allows external MF plugins to call
+  // window.__piDashboard.registerClaim(...) etc.
+  useEffect(() => {
+    if (!send) return; // WS not ready yet
+    const api = createDashboardPluginApi(
+      { registry: _pluginRegistry, send: send as (msg: unknown) => void },
+      "__dashboard_host__",
+      // onCleanup: no-op for the host itself — cleanup is per-plugin
+      () => {},
+    );
+    initDashboardPluginApi(api);
+
+    // Cleanup on unmount: reset to proxy so re-mounts work
+    return () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      delete (window as any).__piDashboard;
+    };
+  }, [send]);
+
+  // ── Runtime plugin loader wiring ─────────────────────────────────────────
+  // See change: runtime-plugin-loading (spec: runtime-plugin-contract).
+
+  // Wire the loader's deps once WS is ready.
+  useEffect(() => {
+    if (!send) return;
+    wirePluginLoader({ registry: _pluginRegistry, send: send as (msg: unknown) => void });
+  }, [send]);
+
+  // Initial fetch of /api/plugins on mount to discover and load MF remotes.
+  // Depend on send so wirePluginLoader has run before handlePluginsChanged
+  // (avoids "Not wired yet" race when fetch completes before WS connects).
+  useEffect(() => {
+    if (!send) return;
+    const base = deriveApiBase(wsUrl) || VITE_API_URL;
+    fetch(`${base}/api/plugins`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.success && Array.isArray(data.plugins)) {
+          const plugins = data.plugins.map((p: Record<string, unknown>) => ({
+            id: p.id as string,
+            enabled: (p.status as Record<string, unknown>)?.enabled !== false,
+            mfRemote: (p.mfRemote ?? (p.status as Record<string, unknown>)?.mfRemote) as string | undefined,
+            error: (p.status as Record<string, unknown>)?.error as string | undefined,
+          }));
+          handlePluginsChanged(plugins);
+        }
+      })
+      .catch((e) => console.warn("[plugin-loader] Failed to fetch /api/plugins:", e));
+  }, [send]);
+
+  // Listen for plugins_changed WS broadcasts via the plugin event bus.
+  useEffect(() => {
+    return onPluginEvent("plugins_changed", (msg) => {
+      const m = msg as { type: "plugins_changed"; plugins: RemotePluginInfo[] };
+      if (Array.isArray(m.plugins)) {
+        handlePluginsChanged(m.plugins);
+      }
+    });
+  }, []);
+
   const { messages: toastMessages, showToast, dismissToast } = useToast();
   const apiBase = useMemo(() => {
     const base = deriveApiBase(wsUrl) || VITE_API_URL;
@@ -353,7 +443,6 @@ export default function App() {
   const installPrompt = useInstallPrompt();
   const launchSource = useLaunchSource();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [sessions, setSessions] = useState<Map<string, DashboardSession>>(new Map());
   const [sessionStates, setSessionStates] = useState<Map<string, SessionState>>(new Map());
   // Per-session chat-input drafts. Hydrated once from localStorage on mount,
   // then persisted (debounced) whenever the map changes.
@@ -512,9 +601,20 @@ export default function App() {
     { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef },
   );
 
+  // Forward WS messages to the plugin event bus so onEvent() subscribers
+  // receive typed events.
+  // See change: runtime-plugin-loading (DashboardPluginApi.onEvent).
+  const pluginAwareMessageHandler = useCallback(
+    (msg: ServerToBrowserMessage) => {
+      handleMessage(msg);
+      emitPluginEvent(msg.type, msg);
+    },
+    [handleMessage],
+  );
+
   useEffect(() => {
-    return onMessage(handleMessage);
-  }, [onMessage, handleMessage]);
+    return onMessage(pluginAwareMessageHandler);
+  }, [onMessage, pluginAwareMessageHandler]);
 
   // Detect code-server binary availability on mount
   useEffect(() => {
@@ -1458,8 +1558,6 @@ export default function App() {
     }
     return null;
   }, [folderTermCwd, folderEditorCwd, getTerminalsForCwd, handleCreateTerminal, handleKillTerminal, handleRenameTerminal, handleTerminalTitle, handleEditorClose]);
-
-  const allSessionsList = useMemo(() => Array.from(sessions.values()), [sessions]);
 
   // Outer chrome ErrorBoundary — defense-in-depth for first-party shell
   // components (sidebar, session list, content header, MobileShell). The

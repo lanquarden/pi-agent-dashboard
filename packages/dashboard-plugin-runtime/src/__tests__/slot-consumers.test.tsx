@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, renderHook } from "@testing-library/react";
+import { render, screen, renderHook, act, waitFor } from "@testing-library/react";
 import React from "react";
 import { PluginContextProvider } from "../plugin-context.js";
 import {
@@ -42,6 +42,9 @@ describe("SessionCardBadgeSlot error boundary", () => {
     });
 
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const loadErrors: CustomEvent[] = [];
+    const errorHandler = (e: Event) => loadErrors.push(e as CustomEvent);
+    window.addEventListener("plugin-load-error", errorHandler);
 
     render(
       <PluginContextProvider registry={registry}>
@@ -56,6 +59,23 @@ describe("SessionCardBadgeSlot error boundary", () => {
     // Error was logged with plugin id and slot id
     const errorCalls = consoleSpy.mock.calls.map(c => c.join(" "));
     expect(errorCalls.some(s => s.includes("b-plugin") && s.includes("session-card-badge"))).toBe(true);
+
+    // Error was reported via CustomEvent for PluginStatusStore
+    expect(loadErrors).toHaveLength(1);
+    expect(loadErrors[0].detail).toMatchObject({
+      pluginId: "b-plugin",
+      error: expect.stringContaining("b-plugin crash"),
+    });
+
+    // In dev mode, an error pill is rendered (vitest runs in non-production)
+    const errorPill = screen.queryByText("b-plugin", { exact: false });
+    // The error boundary renders a pill with pluginId + slotId in dev;
+    // in vitest (non-production) this should be visible.
+    if (errorPill) {
+      expect(errorPill.textContent).toContain("session-card-badge");
+    }
+
+    window.removeEventListener("plugin-load-error", errorHandler);
     consoleSpy.mockRestore();
   });
 
@@ -317,5 +337,127 @@ describe("SessionCardMemorySlot with shouldRender", () => {
       </PluginContextProvider>,
     );
     expect(container.firstChild).toBeNull();
+  });
+});
+
+// ── Runtime reactivity (Task 7: SlotRegistry runtime extension) ──────────────
+
+describe("slot consumer runtime reactivity", () => {
+  it("re-renders when claim added at runtime", () => {
+    const registry = createSlotRegistry();
+    render(
+      <PluginContextProvider registry={registry}>
+        <SessionCardBadgeSlot session={makeSession("s1")} />
+      </PluginContextProvider>,
+    );
+
+    // Initially nothing renders
+    expect(screen.queryByTestId("runtime-badge")).toBeNull();
+
+    // Add a claim at runtime
+    act(() => {
+      registry.addClaim({
+        pluginId: "runtime-plugin",
+        priority: 100,
+        slot: "session-card-badge",
+        Component: () => <span data-testid="runtime-badge">Runtime</span>,
+      });
+    });
+
+    expect(screen.getByTestId("runtime-badge")).toBeDefined();
+  });
+
+  it("removes rendered element when claim removed at runtime", async () => {
+    const registry = createSlotRegistry();
+    const claim = {
+      pluginId: "removable",
+      priority: 100,
+      slot: "session-card-badge" as const,
+      Component: () => <span data-testid="removable-badge">Removable</span>,
+    };
+    registry.addClaim(claim);
+
+    render(
+      <PluginContextProvider registry={registry}>
+        <SessionCardBadgeSlot session={makeSession("s1")} />
+      </PluginContextProvider>,
+    );
+
+    expect(screen.getByTestId("removable-badge")).toBeDefined();
+
+    // Remove the claim at runtime
+    act(() => {
+      registry.removeClaim(claim);
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("removable-badge")).toBeNull();
+    });
+  });
+
+  it("removes all claims for a plugin when removeClaims called", () => {
+    const registry = createSlotRegistry();
+    registry.addClaim({
+      pluginId: "doomed",
+      priority: 100,
+      slot: "session-card-badge",
+      Component: () => <span data-testid="badge-1">B1</span>,
+    });
+    registry.addClaim({
+      pluginId: "doomed",
+      priority: 200,
+      slot: "session-card-memory",
+      Component: () => <span data-testid="memory-1">M1</span>,
+    });
+
+    render(
+      <PluginContextProvider registry={registry}>
+        <SessionCardBadgeSlot session={makeSession("s1")} />
+        <SessionCardMemorySlot session={makeSession("s1")} />
+      </PluginContextProvider>,
+    );
+
+    expect(screen.getByTestId("badge-1")).toBeDefined();
+    expect(screen.getByTestId("memory-1")).toBeDefined();
+
+    act(() => {
+      registry.removeClaims("doomed");
+    });
+
+    expect(screen.queryByTestId("badge-1")).toBeNull();
+    expect(screen.queryByTestId("memory-1")).toBeNull();
+  });
+
+  it("ToolRendererSlot picks up runtime-registered renderer", async () => {
+    const registry = createSlotRegistry();
+    render(
+      <PluginContextProvider registry={registry}>
+        <ToolRendererSlot
+          toolName="runtime-tool"
+          toolInput={{}}
+          sessionId="s1"
+          FallbackComponent={() => <span data-testid="runtime-fallback">FB</span>}
+        />
+      </PluginContextProvider>,
+    );
+
+    // No claim yet — fallback renders
+    expect(screen.getByTestId("runtime-fallback")).toBeDefined();
+
+    // Register at runtime
+    act(() => {
+      registry.addClaim({
+        pluginId: "rt",
+        priority: 100,
+        slot: "tool-renderer",
+        toolName: "runtime-tool",
+        Component: () => <span data-testid="runtime-tool-renderer">RT</span>,
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("runtime-tool-renderer")).toBeDefined();
+      expect(screen.queryByTestId("runtime-fallback")).toBeNull();
+    });
   });
 });

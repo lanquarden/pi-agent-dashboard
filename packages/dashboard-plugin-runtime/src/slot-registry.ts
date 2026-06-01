@@ -93,6 +93,8 @@ export interface SlotRegistry {
   getAllClaims(): ClaimEntry[];
   /** Add a claim. Inserts in sorted order. */
   addClaim(claim: ClaimEntry): void;
+  /** Remove a specific claim. Idempotent — no-op if not present. */
+  removeClaim(claim: ClaimEntry): void;
   /** Remove all claims belonging to a plugin. */
   removeClaims(pluginId: string): void;
   /**
@@ -110,6 +112,13 @@ export interface SlotRegistry {
    * See change: add-plugin-activation-ui.
    */
   getAllPluginsForActivationUi(): Map<string, ClaimEntry[]>;
+  /**
+   * Subscribe to all claim mutations (addClaim, removeClaim, removeClaims,
+   * setEnabledSet). Returns an unsubscribe function. Slot consumers use
+   * this with `useSyncExternalStore` to react to runtime claim changes.
+   * See change: runtime-plugin-loading (Task 7).
+   */
+  subscribe(fn: () => void): () => void;
 }
 
 function compareClaims(a: ClaimEntry, b: ClaimEntry): number {
@@ -124,44 +133,86 @@ export function createSlotRegistry(): SlotRegistry {
   // `null` = filter inactive (default state, returns all claims).
   // `Set<string>` = filter active, only listed pluginIds are kept.
   let enabledSet: ReadonlySet<string> | null = null;
+  const subscribers = new Set<() => void>();
+
+  // Snapshot cache: stable copies returned to callers until a mutation
+  // invalidates them. useSyncExternalStore needs stable references
+  // when data hasn't changed; a new snapshot is created on mutation.
+  let snapshots: Map<string, ClaimEntry[]> | null = null;
+
+  function notify(): void {
+    snapshots = null; // invalidate all snapshots
+    // Copy before iterating — subscriber callbacks may trigger mutations
+    // (e.g. re-entrant addClaim from a React effect).
+    for (const fn of Array.from(subscribers)) fn();
+  }
 
   function getBucket(slotId: SlotId): ClaimEntry[] {
     if (!store.has(slotId)) store.set(slotId, []);
     return store.get(slotId)!;
   }
 
+  /** Build a fresh snapshot — copies the bucket so mutations don't alias. */
   function applyFilter(claims: ClaimEntry[]): ClaimEntry[] {
-    if (enabledSet === null) return claims;
-    const set = enabledSet;
-    return claims.filter((c) => set.has(c.pluginId));
+    const filter = enabledSet; // capture for narrowing inside callback
+    const src = filter === null ? claims : claims.filter((c) => filter.has(c.pluginId));
+    return src.slice(); // defensive copy so stored snapshots are stable
+  }
+
+  function snapshot(key: string, build: () => ClaimEntry[]): ClaimEntry[] {
+    if (!snapshots) snapshots = new Map();
+    const cached = snapshots.get(key);
+    if (cached) return cached;
+    const result = build();
+    snapshots.set(key, result);
+    return result;
   }
 
   return {
     getClaims(slotId: SlotId): ClaimEntry[] {
-      return applyFilter(store.get(slotId) ?? []);
+      return snapshot(`slot:${slotId}`, () => applyFilter(store.get(slotId) ?? []));
     },
 
     getAllClaims(): ClaimEntry[] {
-      const all: ClaimEntry[] = [];
-      for (const claims of store.values()) all.push(...claims);
-      return applyFilter(all);
+      return snapshot("__all__", () => {
+        const all: ClaimEntry[] = [];
+        for (const claims of store.values()) all.push(...claims);
+        return applyFilter(all);
+      });
     },
 
     addClaim(claim: ClaimEntry): void {
       const bucket = getBucket(claim.slot);
       bucket.push(claim);
       bucket.sort(compareClaims);
+      notify();
+    },
+
+    removeClaim(claim: ClaimEntry): void {
+      const bucket = store.get(claim.slot);
+      if (!bucket) return;
+      const idx = bucket.indexOf(claim);
+      if (idx !== -1) {
+        bucket.splice(idx, 1);
+        notify();
+      }
     },
 
     removeClaims(pluginId: string): void {
+      let changed = false;
       for (const [slotId, claims] of store.entries()) {
         const filtered = claims.filter(c => c.pluginId !== pluginId);
-        store.set(slotId, filtered);
+        if (filtered.length !== claims.length) {
+          store.set(slotId, filtered);
+          changed = true;
+        }
       }
+      if (changed) notify();
     },
 
     setEnabledSet(ids: ReadonlySet<string>): void {
       enabledSet = ids;
+      notify();
     },
 
     getAllPluginsForActivationUi(): Map<string, ClaimEntry[]> {
@@ -177,6 +228,11 @@ export function createSlotRegistry(): SlotRegistry {
         }
       }
       return grouped;
+    },
+
+    subscribe(fn: () => void): () => void {
+      subscribers.add(fn);
+      return () => subscribers.delete(fn);
     },
   };
 }

@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .shadow/
+.wtp.yml
 *.db
 *.db-journal
 .env

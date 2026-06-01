@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <meta name="theme-color" content="#3b82f6" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="msapplication-TileImage" content="/icon-192.png" />
+    <meta name="msapplication-TileColor" content="#3b82f6" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <link rel="manifest" href="/manifest.json" />
+    <title>PI Dashboard</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!--
+      Plugin API proxy — queues method calls before React mounts.
+      Once createDashboardPluginApi() initialises the real API, it replays
+      the queue and replaces window.__piDashboard with the live API.
+      See change: runtime-plugin-loading (Decision 4).
+    -->
+    <script>
+      (function() {
+        var queue = [];
+        var proxy = new Proxy({}, {
+          get: function(_, prop) {
+            return function() {
+              var args = Array.prototype.slice.call(arguments);
+              queue.push({ method: prop, args: args });
+              return function() {}; // no-op unregister for queued calls
+            };
+          }
+        });
+        proxy.__queue = queue;
+        proxy.__isProxy = true;
+        window.__piDashboard = proxy;
+      })();
+    </script>
+    <!-- Rspack HtmlRspackPlugin injects <script> and <link> tags here -->
+  </body>
+</html>

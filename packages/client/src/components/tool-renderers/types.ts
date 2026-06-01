@@ -25,3 +25,6 @@ export interface ToolRendererProps {
 
 /** A tool renderer is a React component matching this signature */
 export type ToolRenderer = React.ComponentType<ToolRendererProps>;
+
+/** Function returning inline chips for the collapsed tool header row */
+export type HeaderChipsFn = (args?: Record<string, unknown>) => React.ReactNode;

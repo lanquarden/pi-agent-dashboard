@@ -9,6 +9,7 @@
 | File | Purpose |
 |------|---------|
 | `docs/plugin-claim-gates.md` | `predicate` vs. `shouldRender` contract for plugin claims. See change: auto-hide-empty-session-subcards. |
+| `packages/dashboard-plugin-runtime/src/index.ts` | Barrel export. Re-exports `registerToolRenderer`, `getToolRenderer`, `ToolRendererProps` from client tool-renderer registry — plugin tool-renderer enrichment primitive. See change: bash-dispatch-chips. |
 | `packages/dashboard-plugin-runtime/src/manifest-validator.ts` | Hand-rolled manifest validator. Throws `ManifestValidationError` with `pluginId` + `reason`. No Zod dep. Validates optional `requires` shape: `piExtensions`/`binaries`/`services` each must be `string[]` when present. See change: add-plugin-activation-ui. |
 | `packages/dashboard-plugin-runtime/src/plugin-context.tsx` | `PluginContextProvider`, `CurrentPluginLayer`, `usePluginConfig<T>()`, `useAllSessions`, `useSessionState`, `usePluginLogger`, `usePluginSend`, `usePluginRouter`, `useSlotRegistry`, `applyPluginConfigUpdate`. Per-plugin context layer scopes hooks to contributing plugin's id. |
 | `packages/dashboard-plugin-runtime/src/server/config-validator.ts` | `validatePluginConfig`, `applySchemaDefaults` — Ajv JSON-Schema 7 validation for plugin config writes. |

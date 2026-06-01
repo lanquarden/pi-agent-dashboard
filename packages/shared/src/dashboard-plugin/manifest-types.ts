@@ -124,4 +124,12 @@ export interface PluginManifest {
    * production bundles (NODE_ENV=production).
    */
   fixture?: boolean;
+  /**
+   * Path to the MF remote entry relative to the manifest file
+   * (e.g. "./dist/remoteEntry.js"). When present, the Vite plugin skips
+   * generating a static import for this plugin and the runtime loader
+   * fetches the remote via Module Federation.
+   * See change: runtime-plugin-loading (Decision 7).
+   */
+  mfRemote?: string;
 }

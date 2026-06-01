@@ -36,6 +36,10 @@ const ALLOWLIST: readonly string[] = [
   // file's own header explicitly mandates: "Keep it dependency-free."
   // See change: add-startup-recovery-server (commit e606e8b0).
   "packages/server/src/recovery-server.ts",
+  // Plugin install orchestrates npm via raw child_process (execSync /
+  // spawnSync) for a single-purpose admin route.
+  // See change: runtime-plugin-loading (spec: plugin-install).
+  "packages/server/src/routes/plugin-install-routes.ts",
 ];
 
 /**

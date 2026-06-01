@@ -616,8 +616,27 @@ export interface PluginConfigUpdateMessage {
   config: unknown;
 }
 
+/**
+ * Broadcast to all browsers when the plugin list changes (install, uninstall,
+ * enable, disable). Carries the full plugin list with mfRemote URLs.
+ * See change: runtime-plugin-loading (Decision 6).
+ */
+export interface PluginsChangedMessage {
+  type: "plugins_changed";
+  plugins: Array<{
+    id: string;
+    displayName: string;
+    enabled: boolean;
+    loaded: boolean;
+    error?: string;
+    source?: string;
+    mfRemote?: string;
+  }>;
+}
+
 export type ServerToBrowserMessage =
   | PluginConfigUpdateMessage
+  | PluginsChangedMessage
   | SessionAddedMessage
   | SessionUpdatedMessage
   | SessionRemovedMessage
